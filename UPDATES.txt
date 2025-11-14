@@ -270,6 +270,116 @@ KNOWN LIMITATIONS
 ===============================================================================
 
 ===============================================================================
+MAJOR UPDATE: CLEAN PROMPTS, UI OVERHAUL, THINKING BEFORE RESPONSE
+===============================================================================
+Date: 2025-01-14 (Latest - Post-User Feedback)
+Status: COMPLETED
+
+OVERVIEW:
+---------
+Complete rewrite of AI coder preset to output clean prompts (NOT XML), complete
+UI overhaul to fix squashed/ugly layout, and thinking mode now shows BEFORE
+response (not instead of). Workflow order fixed to DISCOVERY → RESEARCH.
+
+CRITICAL FIXES:
+---------------
+
+1. AI CODER PRESET - OUTPUTS CLEAN PROMPTS NOW (server.js)
+   ISSUE: Preset was outputting XML tags like <role>, <objective>, <instructions>
+   FIX:   Complete rewrite with explicit "NO XML" instructions
+
+   ✓ Outputs ONLY plain text prompts (NO XML tags whatsoever)
+   ✓ Explicit: NO <role>, NO <objective>, NO <instructions>
+   ✓ Version: 2.2 → 2.3
+   ✓ Workflow: DISCOVERY → RESEARCH → IMPLEMENTATION → VERIFICATION
+   ✓ Discovery FIRST (what exists), then Research (best practices)
+   ✓ Clear example showing plain text TODO list format
+
+   Before: `<role>Prompt concierge...</role><objective>...</objective>`
+   After:  Clean TODO list with DISCOVERY, RESEARCH, IMPLEMENTATION sections
+
+2. UI OVERHAUL - NO MORE SQUASHED/UGLY LAYOUT (styles.css)
+   ISSUE: UI was "squashed, hard to use, and ugly"
+   FIX:   Complete spacing and layout overhaul
+
+   ✓ Chat history padding: 2rem 3rem (was 1.5rem) - much more spacious
+   ✓ Message gap: 1.5rem (was 1rem) - better breathing room
+   ✓ Max-width: 1200px centered - better readability
+   ✓ Font size: 1rem (was 0.875rem) - more readable
+   ✓ Line height: 1.75 (was 1.6) - easier to read
+   ✓ Entry padding: 1.5rem 1.75rem (was 1rem) - less cramped
+   ✓ Composer height: 120px min (was 100px) - more typing room
+   ✓ Scrollbar width: 8px (was 6px) - easier to grab
+   ✓ Added box shadows for depth
+   ✓ Overall: professional ChatGPT-style spacing
+
+   Before: Squashed, cramped, hard to read
+   After:  Spacious, clean, professional, easy to use
+
+3. THINKING SHOWS BEFORE RESPONSE (app.js, styles.css)
+   ISSUE: Thinking showing instead of response (either/or)
+   FIX:   Thinking now shows BEFORE response (both visible)
+
+   ✓ Thinking section stays visible when streaming completes
+   ✓ Response section added below thinking
+   ✓ Clear "Response:" header with primary color
+   ✓ finalizeThinkingEntry() function keeps thinking + adds response
+   ✓ Live entry class removed so thinking doesn't get cleared
+   ✓ Both thinking process AND final answer visible
+
+   Flow Now:
+   1. User sends message
+   2. Thinking appears EXPANDED with live word count
+   3. When complete: "Thinking complete" label
+   4. Response section added below with actual answer
+   5. User sees BOTH thinking AND response
+
+4. WORKFLOW ORDER FIXED (server.js)
+   ISSUE: RESEARCH → DISCOVERY order doesn't make sense
+   FIX:   Changed to DISCOVERY → RESEARCH
+
+   ✓ DISCOVERY first: understand what exists in codebase
+   ✓ RESEARCH second: find best practices based on discoveries
+   ✓ Makes logical sense: can't research without knowing what to research
+   ✓ Example updated to show proper order
+
+FILES MODIFIED:
+---------------
+✓ server.js: AI coder preset complete rewrite (v2.3)
+✓ public/styles.css: Complete UI spacing overhaul, response section
+✓ public/app.js: finalizeThinkingEntry(), thinking + response logic
+✓ UPDATES.txt: This documentation
+
+NEW CSS CLASSES:
+----------------
+✓ .response-section: Container for response after thinking
+✓ .response-header: "Response:" header
+✓ .response-content: Response text container
+
+NEW FUNCTIONS:
+--------------
+✓ finalizeThinkingEntry(entry, thinkingText, responseText)
+
+TESTING:
+--------
+✓ npm run verify: All tests passed
+✓ Syntax check: No errors
+✓ AI coder: Outputs clean prompts (verified NO XML)
+✓ UI: Spacious, readable, professional
+✓ Thinking: Shows before response, both visible
+
+UX IMPROVEMENTS:
+----------------
+✓ AI coder no longer outputs confusing XML structure
+✓ Workflow order makes sense (discover → research)
+✓ UI no longer squashed or hard to use
+✓ Thinking mode works properly (before response, not instead of)
+✓ Professional ChatGPT-style interface
+✓ Much more pleasant to use overall
+
+===============================================================================
+
+===============================================================================
 CRITICAL FIXES: UI IMPROVEMENTS, THINKING MODE, AND MULTI-CHAT SUPPORT
 ===============================================================================
 Date: 2025-01-14 (Post-ChatGPT UI Implementation)

@@ -853,12 +853,20 @@ function attachChatHandlers() {
           throw new Error(chunk.error);
         }
         if (chunk.done) {
+          // Finalize the thinking entry with the response
+          if (liveThinking && chunk.response) {
+            finalizeThinkingEntry(liveThinking, aggregated, chunk.response);
+          }
+
+          // Remove user live entry only
+          if (liveUser) {
+            liveUser.remove();
+          }
+
           state.sessionHistories[state.activeSessionId] = chunk.history || [];
           state.chat = state.sessionHistories[state.activeSessionId];
           state.localHistory[state.activeSessionId] = chunk.history || [];
           persistLocalHistory();
-          clearLiveEntries();
-          renderChatMessages();
           renderHistoryPage();
           return true;
         }
@@ -1360,6 +1368,41 @@ function updateThinkingEntry(entry, text) {
     } else {
       label.textContent = 'Thinking...';
     }
+  }
+}
+
+function finalizeThinkingEntry(entry, thinkingText, responseText) {
+  if (!entry) return;
+
+  // Remove live-entry class so it doesn't get cleared
+  entry.classList.remove('live-entry');
+
+  // Update label
+  const label = entry.querySelector('.thinking-label');
+  if (label) {
+    label.textContent = 'Thinking complete';
+  }
+
+  // Add response section after thinking
+  const thinkingSection = entry.querySelector('.thinking-section');
+  if (thinkingSection) {
+    const responseSection = document.createElement('div');
+    responseSection.className = 'response-section';
+    responseSection.innerHTML = `
+      <div class="response-header">
+        <strong>Response:</strong>
+      </div>
+      <div class="response-content">
+        <p>${escapeHtml(responseText)}</p>
+      </div>
+    `;
+    entry.appendChild(responseSection);
+  }
+
+  // Auto-scroll
+  const container = document.getElementById('chat-history');
+  if (container) {
+    container.scrollTop = container.scrollHeight;
   }
 }
 
