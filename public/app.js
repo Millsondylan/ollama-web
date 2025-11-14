@@ -10,11 +10,14 @@
 const STORAGE_KEYS = {
   history: 'ollama-web-history',
   settings: 'ollama-web-client-settings',
-  pages: 'ollama-web-custom-pages'
+  pages: 'ollama-web-custom-pages',
+  thinking: 'ollama-web-thinking-enabled',
+  activeSession: 'ollama-web-active-session'
 };
 
+const THINKING_PREF_KEY = STORAGE_KEYS.thinking;
+
 const FALLBACK_BASE_URL = window.location.origin + '/';
-const THINKING_PREF_KEY = 'ollama-thinking-enabled';
 
 // Default navigation stack. Additional HTML pages can be appended at runtime via the Custom Pages form.
 const defaultPages = [
@@ -509,12 +512,14 @@ function attachChatHandlers() {
   const instructionsPreview = document.getElementById('session-instructions-preview');
   const modelSelector = document.getElementById('model-selector');
   const thinkingToggle = document.getElementById('thinking-toggle');
+  const thinkingLogClear = document.getElementById('thinking-log-clear');
 
   renderChatMessages();
   renderSessionSelector();
   renderModelSelector();
   updateSessionInstructionsPreview();
   updateThinkingStatus();
+  hideThinkingLog(true);
 
   if (modelSelector) {
     modelSelector.addEventListener('change', (event) => {
@@ -529,9 +534,16 @@ function attachChatHandlers() {
     thinkingToggle.checked = state.thinkingEnabled;
     thinkingToggle.addEventListener('change', (event) => {
       state.thinkingEnabled = event.target.checked;
+      console.log('[DEBUG] Thinking toggled:', state.thinkingEnabled);
       persistThinkingPreference(state.thinkingEnabled);
       updateThinkingStatus();
+      if (!state.thinkingEnabled) {
+        hideThinkingLog(true);
+      }
     });
+  }
+  if (thinkingLogClear) {
+    thinkingLogClear.addEventListener('click', () => hideThinkingLog(true));
   }
 
   sendBtn.addEventListener('click', () => sendMessage());
@@ -580,9 +592,13 @@ function attachChatHandlers() {
     const liveThinking = appendThinkingMessage();
     const effectiveModel = resolveModelForRequest();
     updateThinkingStatus(effectiveModel);
+    if (state.thinkingEnabled) {
+      showThinkingLog('');
+    }
 
     try {
-      const session = state.sessions.find((item) => item.id === state.activeSessionId);
+      const sessionsArray = Array.isArray(state.sessions) ? state.sessions : [];
+      const session = sessionsArray.find((item) => item.id === state.activeSessionId);
       const sessionInstructions = session?.instructions?.trim();
       const instructionsToUse =
         sessionInstructions && sessionInstructions.length
@@ -599,9 +615,12 @@ function attachChatHandlers() {
       };
 
       if (state.thinkingEnabled) {
+        console.log('[DEBUG] Using thinking stream with model:', effectiveModel);
         await sendThinkingStream(payload, liveThinking, liveUser);
         return;
       }
+      
+      console.log('[DEBUG] Using standard chat with model:', effectiveModel);
 
       const data = await fetchJson('/api/chat', {
         method: 'POST',
@@ -629,12 +648,16 @@ function attachChatHandlers() {
         setTimeout(() => liveUser.remove(), 2000);
       }
     } finally {
+      if (!state.thinkingEnabled) {
+        hideThinkingLog(true);
+      }
       setThinking(false);
     }
   }
 
   async function sendThinkingStream(payload, liveThinking, liveUser) {
-    const response = await fetch('/api/chat/stream', {
+    console.log('[DEBUG] Starting SSE stream to:', buildUrl('/api/chat/stream'));
+    const response = await fetch(buildUrl('/api/chat/stream'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -642,6 +665,7 @@ function attachChatHandlers() {
       body: JSON.stringify(payload)
     });
 
+    console.log('[DEBUG] SSE response status:', response.status, response.ok);
     if (!response.ok || !response.body) {
       throw new Error('Unable to start thinking mode');
     }
@@ -662,7 +686,9 @@ function attachChatHandlers() {
         const chunk = JSON.parse(payloadStr);
         if (chunk.token) {
           aggregated += chunk.token;
+          console.log('[DEBUG] Token received:', chunk.token, 'Total:', aggregated.length);
           updateThinkingEntry(liveThinking, aggregated);
+          updateThinkingLog(aggregated);
         }
         if (chunk.error) {
           throw new Error(chunk.error);
@@ -803,7 +829,8 @@ async function setActiveSession(sessionId, options = {}) {
 function updateSessionInstructionsPreview() {
   const previewEl = document.getElementById('session-instructions-preview');
   if (!previewEl) return;
-  const session = state.sessions.find((item) => item.id === state.activeSessionId);
+  const sessionsArray = Array.isArray(state.sessions) ? state.sessions : [];
+  const session = sessionsArray.find((item) => item.id === state.activeSessionId);
   if (!session) {
     previewEl.textContent = '';
     return;
@@ -832,6 +859,31 @@ function updateThinkingStatus(effectiveModel = resolveModelForRequest()) {
   } else {
     status.textContent = 'Thinking enabled (no model selected)';
   }
+}
+
+function showThinkingLog(initialText = '') {
+  const container = document.getElementById('thinking-log');
+  const content = document.getElementById('thinking-log-content');
+  if (!container || !content) return;
+  container.classList.add('visible');
+  content.textContent = initialText;
+}
+
+function updateThinkingLog(text) {
+  const content = document.getElementById('thinking-log-content');
+  if (!content) return;
+  content.textContent = text;
+  content.scrollTop = content.scrollHeight;
+}
+
+function hideThinkingLog(clearText = false) {
+  const container = document.getElementById('thinking-log');
+  const content = document.getElementById('thinking-log-content');
+  if (!container || !content) return;
+  if (clearText) {
+    content.textContent = '';
+  }
+  container.classList.remove('visible');
 }
 
 function renderChatMessages() {
@@ -919,6 +971,7 @@ function updateThinkingEntry(entry, text) {
   if (thinkingText) {
     thinkingText.textContent = text || 'Thinking…';
   }
+  updateThinkingLog(text || '');
 }
 
 function attachSettingsHandlers() {

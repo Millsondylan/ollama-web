@@ -255,6 +255,11 @@ button:disabled {
   box-shadow: none;
 }
 
+.ghost-btn.ghost-sm {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8rem;
+}
+
 .ghost-btn.danger {
   color: var(--error);
   border-color: var(--error);
@@ -853,55 +858,966 @@ table tbody tr:last-child td {
   }
 }
 
-@media (max-width: 768px) {
+.thinking-log {
+  display: none;
+  margin: 0 0 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-hover);
+  padding: 1rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.thinking-log.visible {
+  display: block;
+}
+
+.thinking-log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  gap: 0.5rem;
+}
+
+.thinking-log-header span {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+#thinking-log-content {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: 'Monaco', 'Courier New', monospace;
+  font-size: 0.85rem;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 0.75rem;
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+@media (max-width: 1024px) {
   .page-root {
-    padding: 1rem;
-    gap: 1rem;
+    max-width: 100%;
+  }
+
+  .panel-actions {
+    gap: 0.5rem;
+  }
+
+  .panel-header {
+    gap: 0.75rem;
+  }
+}
+
+@media (max-width: 420px) {
+  html {
+    font-size: 13.5px;
+  }
+
+  body {
+    font-size: 13.5px;
+  }
+
+  .page-root {
+    padding: 0.5rem;
+    gap: 0.65rem;
   }
 
   .panel {
-    padding: 1.25rem;
+    padding: 0.7rem;
   }
 
   .app-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 1rem;
+    padding: 0.7rem;
+    gap: 0.5rem;
   }
 
-  .app-nav {
-    width: 100%;
+  .app-header > div:first-child h1 {
+    font-size: 1.1rem;
+    margin: 0;
+  }
+
+  .app-header > div:first-child p {
+    font-size: 0.75rem;
+    line-height: 1.25;
+  }
+
+  .status-badges {
+    gap: 0.35rem;
+  }
+
+  .badge {
+    font-size: 0.65rem;
+    padding: 0.25rem 0.5rem;
+  }
+
+  .app-nav button {
+    padding: 0.6rem 0.85rem;
+    font-size: 0.8rem;
+  }
+
+  .panel-header h2 {
+    font-size: 1.05rem;
+  }
+
+  .panel-actions {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.35rem;
+  }
+
+  .session-select,
+  .model-select,
+  .thinking-toggle {
+    font-size: 0.8rem;
+  }
+
+  .session-select select,
+  .model-select select {
+    font-size: 0.8rem;
+    padding: 0.35rem;
+  }
+
+  .panel-actions button {
+    padding: 0.45rem 0.6rem;
+    font-size: 0.75rem;
+    min-height: 40px;
+  }
+
+  .composer {
+    margin-top: 0.8rem;
+    gap: 0.5rem;
+    padding-top: 0.8rem;
+  }
+
+  .composer textarea {
+    min-height: 75px;
+    max-height: 200px;
+    padding: 0.65rem;
+    font-size: 0.95rem;
   }
 
   .composer-actions {
-    flex-direction: column;
-    align-items: stretch;
+    gap: 0.4rem;
   }
 
   .composer-actions button {
-    width: 100%;
-  }
-
-  .session-card {
-    padding: 1rem;
+    padding: 0.55rem 0.8rem;
+    font-size: 0.85rem;
+    min-height: 42px;
   }
 
   .chat-history {
-    max-height: 30vh;
+    max-height: 35vh;
+    gap: 0.65rem;
+  }
+
+  .chat-entry {
+    padding: 0.65rem;
+  }
+
+  .chat-entry p {
+    font-size: 0.88rem;
+    margin: 0.3rem 0 0;
+  }
+
+  .chat-entry header {
+    font-size: 0.78rem;
+    margin-bottom: 0.3rem;
+  }
+
+  .session-card {
+    padding: 0.7rem;
+    gap: 0.6rem;
+  }
+
+  .session-card header h3 {
+    font-size: 0.98rem;
+  }
+
+  .session-card-actions button {
+    padding: 0.45rem 0.65rem;
+    font-size: 0.78rem;
+    min-width: 75px;
+  }
+
+  .history-item {
+    padding: 0.65rem;
+  }
+
+  .history-item h4 {
+    font-size: 0.82rem;
+    margin-bottom: 0.35rem;
+  }
+
+  .history-item p {
+    font-size: 0.82rem;
+    margin: 0.25rem 0;
+  }
+
+  .settings-form input,
+  .settings-form textarea,
+  .settings-form select {
+    padding: 0.65rem;
+    font-size: 0.95rem;
+  }
+
+  .settings-form textarea {
+    min-height: 95px;
+  }
+
+  .inline-form {
+    gap: 0.4rem;
+  }
+
+  .inline-form input {
+    font-size: 0.95rem;
   }
 
   table {
-    font-size: 0.85rem;
+    font-size: 0.8rem;
   }
 
   table th,
   table td {
+    padding: 0.55rem;
+  }
+
+  .code-block {
+    font-size: 0.8rem;
+  }
+
+  #thinking-log-content {
+    font-size: 0.78rem;
+    max-height: 130px;
+  }
+
+  .ghost-btn {
+    padding: 0.45rem 0.65rem;
+    font-size: 0.78rem;
+  }
+}
+
+@media (max-width: 360px) {
+  html {
+    font-size: 13px;
+  }
+
+  body {
+    font-size: 13px;
+  }
+
+  .page-root {
+    padding: 0.35rem;
+    gap: 0.5rem;
+  }
+
+  .panel {
+    padding: 0.6rem;
+    border-radius: calc(var(--radius) - 0.1rem);
+  }
+
+  .app-header {
+    padding: 0.6rem;
+    gap: 0.35rem;
+  }
+
+  .app-header > div:first-child h1 {
+    font-size: 1rem;
+    margin: 0;
+    font-weight: 700;
+  }
+
+  .app-header > div:first-child p {
+    font-size: 0.7rem;
+    line-height: 1.2;
+    display: none;
+  }
+
+  .status-badges {
+    gap: 0.25rem;
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .badge {
+    font-size: 0.6rem;
+    padding: 0.2rem 0.4rem;
+  }
+
+  .app-nav {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .app-nav button {
+    padding: 0.5rem 0.65rem;
+    font-size: 0.75rem;
+    flex-shrink: 0;
+  }
+
+  .panel-header {
+    gap: 0.4rem;
+  }
+
+  .panel-header h2 {
+    font-size: 1rem;
+  }
+
+  .panel-actions {
+    grid-template-columns: 1fr;
+    gap: 0.3rem;
+  }
+
+  .session-select,
+  .model-select,
+  .thinking-toggle {
+    font-size: 0.75rem;
+  }
+
+  .session-select select,
+  .model-select select {
+    font-size: 0.75rem;
+    padding: 0.3rem;
+  }
+
+  .panel-actions button {
+    padding: 0.4rem 0.5rem;
+    font-size: 0.7rem;
+    min-height: 38px;
+  }
+
+  .composer {
+    margin-top: 0.6rem;
+    gap: 0.35rem;
+    padding-top: 0.6rem;
+  }
+
+  .composer textarea {
+    min-height: 60px;
+    max-height: 150px;
+    padding: 0.5rem;
+    font-size: 0.9rem;
+  }
+
+  .composer-actions {
+    gap: 0.3rem;
+  }
+
+  .composer-actions button {
+    padding: 0.5rem 0.7rem;
+    font-size: 0.8rem;
+    min-height: 38px;
+  }
+
+  .chat-history {
+    max-height: 25vh;
+    gap: 0.5rem;
+  }
+
+  .chat-entry {
+    padding: 0.5rem;
+  }
+
+  .chat-entry p {
+    font-size: 0.8rem;
+    margin: 0.2rem 0 0;
+  }
+
+  .chat-entry header {
+    font-size: 0.7rem;
+    gap: 0.25rem;
+  }
+
+  .session-card {
+    padding: 0.6rem;
+    gap: 0.5rem;
+  }
+
+  .session-card header h3 {
+    font-size: 0.9rem;
+    margin: 0;
+  }
+
+  .session-card-actions {
+    gap: 0.25rem;
+  }
+
+  .session-card-actions button {
+    padding: 0.35rem 0.5rem;
+    font-size: 0.7rem;
+    min-width: 60px;
+  }
+
+  .attachment-list li {
+    padding: 0.4rem;
+    font-size: 0.75rem;
+  }
+
+  .history-item {
+    padding: 0.5rem;
+  }
+
+  .history-item h4 {
+    font-size: 0.75rem;
+    margin: 0 0 0.3rem;
+  }
+
+  .history-item p {
+    font-size: 0.75rem;
+    margin: 0.2rem 0;
+  }
+
+  .settings-form input,
+  .settings-form textarea,
+  .settings-form select {
+    padding: 0.5rem;
+    font-size: 0.9rem;
+  }
+
+  .settings-form textarea {
+    min-height: 80px;
+  }
+
+  .inline-form {
+    gap: 0.3rem;
+  }
+
+  .inline-form input {
+    font-size: 0.9rem;
+    padding: 0.5rem;
+  }
+
+  .inline-form button {
+    font-size: 0.7rem;
+    padding: 0.45rem 0.7rem;
+  }
+
+  table {
+    font-size: 0.7rem;
+  }
+
+  table th,
+  table td {
+    padding: 0.4rem;
+  }
+
+  .api-base-url code {
+    font-size: 0.75rem;
+  }
+
+  .code-block {
+    font-size: 0.75rem;
     padding: 0.75rem;
+  }
+
+  #thinking-log-content {
+    font-size: 0.7rem;
+    max-height: 100px;
+    padding: 0.3rem;
+  }
+
+  .ghost-btn {
+    padding: 0.4rem 0.5rem;
+    font-size: 0.7rem;
+  }
+}
+
+@media (max-width: 480px) {
+  html {
+    font-size: 14px;
+  }
+
+  body {
+    font-size: 14px;
+  }
+
+  .page-root {
+    padding: 0.5rem;
+    gap: 0.75rem;
+  }
+
+  .panel {
+    padding: 0.75rem;
+    margin-bottom: 0.35rem;
+  }
+
+  .app-header {
+    padding: 0.75rem;
+    gap: 0.5rem;
+  }
+
+  .app-header > div:first-child h1 {
+    font-size: 1.15rem;
+    margin-bottom: 0.1rem;
+  }
+
+  .app-header > div:first-child p {
+    font-size: 0.75rem;
+    line-height: 1.3;
+  }
+
+  .status-badges {
+    gap: 0.35rem;
+  }
+
+  .badge {
+    font-size: 0.65rem;
+    padding: 0.25rem 0.5rem;
+  }
+
+  .app-nav button {
+    padding: 0.6rem 0.8rem;
+    font-size: 0.8rem;
+  }
+
+  .panel-header h2 {
+    font-size: 1.1rem;
+  }
+
+  .panel-actions {
+    grid-template-columns: 1fr;
+    gap: 0.4rem;
+  }
+
+  .session-select,
+  .model-select,
+  .thinking-toggle {
+    font-size: 0.8rem;
+  }
+
+  .session-select select,
+  .model-select select {
+    font-size: 0.8rem;
+    padding: 0.4rem;
+  }
+
+  .panel-actions button {
+    padding: 0.45rem 0.6rem;
+    font-size: 0.75rem;
+  }
+
+  .composer {
+    margin-top: 0.75rem;
+    gap: 0.5rem;
+    padding-top: 0.75rem;
+  }
+
+  .composer textarea {
+    min-height: 70px;
+    max-height: 180px;
+    padding: 0.6rem;
+    font-size: 0.95rem;
+  }
+
+  .composer-actions {
+    gap: 0.4rem;
+  }
+
+  .composer-actions button {
+    padding: 0.55rem 0.8rem;
+    font-size: 0.85rem;
+    min-height: 40px;
+  }
+
+  .chat-history {
+    max-height: 30vh;
+    gap: 0.6rem;
+  }
+
+  .chat-entry {
+    padding: 0.6rem;
+  }
+
+  .chat-entry p {
+    font-size: 0.85rem;
+    margin: 0.25rem 0 0;
+  }
+
+  .chat-entry header {
+    font-size: 0.75rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .session-card {
+    padding: 0.75rem;
+    gap: 0.6rem;
+  }
+
+  .session-card header h3 {
+    font-size: 0.95rem;
+  }
+
+  .session-card-actions button {
+    padding: 0.45rem 0.6rem;
+    font-size: 0.75rem;
+    min-width: 70px;
+  }
+
+  .settings-form,
+  .custom-page-form {
+    gap: 1rem;
+  }
+
+  .settings-form input,
+  .settings-form textarea,
+  .settings-form select {
+    padding: 0.6rem;
+    font-size: 0.95rem;
+  }
+
+  .settings-form textarea {
+    min-height: 90px;
+  }
+
+  .history-item {
+    padding: 0.6rem;
+  }
+
+  .history-item h4 {
+    font-size: 0.8rem;
+    margin-bottom: 0.4rem;
+  }
+
+  .history-item p {
+    font-size: 0.8rem;
+    margin: 0.25rem 0;
+  }
+
+  #thinking-log-content {
+    font-size: 0.75rem;
+    max-height: 120px;
+    padding: 0.4rem;
+  }
+
+  .ghost-btn {
+    padding: 0.45rem 0.6rem;
+    font-size: 0.75rem;
+  }
+
+  .inline-form {
+    gap: 0.4rem;
+  }
+
+  .inline-form input {
+    font-size: 0.95rem;
+  }
+
+  table {
+    font-size: 0.75rem;
+  }
+
+  table th,
+  table td {
+    padding: 0.5rem;
+  }
+}
+
+@media (max-width: 768px) {
+  html {
+    font-size: 15px;
+  }
+
+  body {
+    font-size: 15px;
+  }
+
+  .page-root {
+    padding: 0.75rem;
+    gap: 1rem;
+    max-width: 100%;
+  }
+
+  .panel {
+    padding: 1rem;
+    border-radius: var(--radius);
+    margin-bottom: 0.5rem;
+  }
+
+  .app-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+    padding: 1rem;
+  }
+
+  .app-header > div:first-child h1 {
+    font-size: 1.35rem;
+    margin-bottom: 0.125rem;
+  }
+
+  .app-header > div:first-child p {
+    font-size: 0.8rem;
+  }
+
+  .status-badges {
+    gap: 0.5rem;
+    width: 100%;
+  }
+
+  .badge {
+    font-size: 0.7rem;
+    padding: 0.3rem 0.6rem;
+  }
+
+  .app-nav {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .app-nav button {
+    padding: 0.75rem 1rem;
+    font-size: 0.85rem;
+    flex-shrink: 0;
+  }
+
+  .panel-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .panel-header h2 {
+    font-size: 1.25rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .panel-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    width: 100%;
+  }
+
+  .session-select,
+  .model-select,
+  .thinking-toggle {
+    width: 100%;
+    font-size: 0.85rem;
+  }
+
+  .session-select select,
+  .model-select select {
+    width: 100%;
+    font-size: 0.85rem;
+    padding: 0.5rem;
+  }
+
+  .session-select > span,
+  .model-select > span {
+    font-size: 0.75rem;
+  }
+
+  .panel-actions button {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    flex: 1;
+  }
+
+  .composer {
+    margin-top: 1rem;
+    gap: 0.75rem;
+    padding-top: 1rem;
+  }
+
+  .composer textarea {
+    min-height: 80px;
+    max-height: 200px;
+    padding: 0.75rem;
+    font-size: 1rem;
+  }
+
+  .composer-actions {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .composer-actions button {
+    flex: 1;
+    padding: 0.6rem 1rem;
+    font-size: 0.9rem;
+    min-height: 44px;
+  }
+
+  .spinner {
+    gap: 0.35rem;
+  }
+
+  .chat-history {
+    max-height: 35vh;
+    gap: 0.75rem;
+  }
+
+  .chat-entry {
+    padding: 0.75rem;
+    border-radius: var(--radius);
+  }
+
+  .chat-entry p {
+    font-size: 0.9rem;
+    margin: 0.35rem 0 0;
+  }
+
+  .chat-entry header {
+    font-size: 0.8rem;
+    margin-bottom: 0.35rem;
+  }
+
+  .session-card {
+    padding: 1rem;
+    gap: 0.75rem;
+  }
+
+  .session-card header {
+    gap: 0.75rem;
+  }
+
+  .session-card header h3 {
+    font-size: 1rem;
+  }
+
+  .session-card-actions {
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+
+  .session-card-actions button {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8rem;
+    flex: 1;
+    min-width: 80px;
+  }
+
+  .attachment-list {
+    gap: 0.4rem;
+  }
+
+  .attachment-list li {
+    padding: 0.5rem;
+    font-size: 0.8rem;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .attachment-list li span:last-child {
+    width: 100%;
+  }
+
+  .settings-form,
+  .custom-page-form {
+    gap: 1.25rem;
+  }
+
+  .settings-form label,
+  .custom-page-form label {
+    gap: 0.35rem;
+  }
+
+  .settings-form input,
+  .settings-form textarea,
+  .settings-form select,
+  .custom-page-form input {
+    padding: 0.65rem;
+    font-size: 1rem;
+    border-radius: var(--radius-sm);
+  }
+
+  .settings-form textarea {
+    min-height: 100px;
+  }
+
+  table {
+    font-size: 0.8rem;
+  }
+
+  table th,
+  table td {
+    padding: 0.65rem;
   }
 
   .api-base-url {
     flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .api-base-url code {
+    font-size: 0.8rem;
+    word-break: break-all;
+  }
+
+  .code-block {
+    font-size: 0.8rem;
+    padding: 1rem;
+  }
+
+  .history-item {
+    padding: 0.75rem;
+  }
+
+  .history-item h4 {
+    font-size: 0.85rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .history-item p {
+    font-size: 0.85rem;
+    margin: 0.35rem 0;
+  }
+
+  .thinking-log {
+    margin: 0 0 0.75rem;
+    padding: 0.75rem;
+  }
+
+  #thinking-log-content {
+    font-size: 0.8rem;
+    max-height: 150px;
+    padding: 0.5rem;
+  }
+
+  .inline-form {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .inline-form input {
+    width: 100%;
+    min-width: unset;
+  }
+
+  .inline-form button {
+    width: 100%;
+  }
+
+  .form-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+  }
+
+  .form-actions button {
+    width: 100%;
+  }
+
+  .custom-page-list li {
+    flex-direction: column;
     align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .custom-page-list li button {
+    width: 100%;
+  }
+
+  .ghost-btn {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8rem;
   }
 }
 
