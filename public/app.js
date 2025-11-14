@@ -521,10 +521,21 @@ function attachSessionFormHandlers() {
       const formData = new FormData(form);
       const sessionId = formData.get('sessionId');
       const attachments = await collectSessionAttachments(form);
+      const instructions = formData.get('instructions');
       const payload = {
         name: formData.get('name'),
-        instructions: formData.get('instructions')
+        instructions
       };
+
+      // Check if a preset was applied via the apply button
+      const selectedPresetId = form.dataset.selectedPresetId;
+      if (selectedPresetId) {
+        const preset = findInstructionPresetById(selectedPresetId);
+        // Only include presetId if instructions match the preset
+        if (preset && normalizeInstructionText(instructions) === normalizeInstructionText(preset.instructions)) {
+          payload.presetId = selectedPresetId;
+        }
+      }
 
       if (attachments.length) {
         payload.attachments = attachments;
@@ -865,14 +876,17 @@ function isAbortLikeThinkingError(error) {
 }
 
 function buildThinkingFallbackMessage(error) {
+  const session = state.sessions.find((item) => item.id === state.activeSessionId);
+  const presetInfo = session?.presetId ? ` [Preset: ${session.presetId}]` : '';
+
   if (isAbortLikeThinkingError(error)) {
-    return 'Thinking stream was interrupted by the browser. Switching to standard response…';
+    return `Thinking stream was interrupted by the browser${presetInfo}. Switching to standard response…`;
   }
   const detail = normalizeThinkingErrorMessage(error);
   if (!detail) {
-    return 'Thinking stream unavailable. Retrying without live updates…';
+    return `Thinking stream unavailable${presetInfo}. Retrying without live updates…`;
   }
-  return `Thinking stream unavailable (${detail}). Retrying without live updates…`;
+  return `Thinking stream unavailable (${detail})${presetInfo}. Retrying without live updates…`;
 }
 
 function renderSessionSelector() {
@@ -1325,6 +1339,10 @@ function setupInstructionPresetControls({
     }
     targetField.value = preset.instructions || '';
     targetField.dispatchEvent(new Event('input', { bubbles: true }));
+    // Store presetId in a data attribute so it can be accessed during form submission
+    if (targetField.form && preset.id) {
+      targetField.form.dataset.selectedPresetId = preset.id;
+    }
   });
 
   instructionPresetControlRegistry.push(control);
@@ -1394,7 +1412,7 @@ function setupChatInstructionPresetControl() {
       try {
         await fetchJson(`/api/sessions/${encodeURIComponent(state.activeSessionId)}`, {
           method: 'PUT',
-          body: JSON.stringify({ instructions: '' })
+          body: JSON.stringify({ instructions: '', presetId: null })
         });
         await loadSessions();
         await loadServerHistory(state.activeSessionId);
@@ -1418,7 +1436,7 @@ function setupChatInstructionPresetControl() {
     try {
       await fetchJson(`/api/sessions/${encodeURIComponent(state.activeSessionId)}`, {
         method: 'PUT',
-        body: JSON.stringify({ instructions: preset.instructions })
+        body: JSON.stringify({ instructions: preset.instructions, presetId: preset.id })
       });
       await loadSessions();
       await loadServerHistory(state.activeSessionId);
@@ -1459,7 +1477,11 @@ function getInstructionPresetCatalog() {
     id: preset.id || `preset-${index + 1}`,
     label: preset.label || `Preset ${index + 1}`,
     description: preset.description || '',
-    instructions: preset.instructions || ''
+    instructions: preset.instructions || '',
+    version: preset.version || '1.0',
+    category: preset.category || 'general',
+    workflow: preset.workflow || {},
+    updatedAt: preset.updatedAt || new Date().toISOString()
   }));
 }
 
@@ -1490,7 +1512,11 @@ function normalizeInstructionPresets(presets, fallbackInstruction) {
       id: preset.id || `preset-${index + 1}`,
       label: preset.label || `Preset ${index + 1}`,
       description: preset.description || '',
-      instructions: preset.instructions || ''
+      instructions: preset.instructions || '',
+      version: preset.version || '1.0',
+      category: preset.category || 'general',
+      workflow: preset.workflow || {},
+      updatedAt: preset.updatedAt || new Date().toISOString()
     }));
   }
   const fallback = normalizeInstructionText(fallbackInstruction);
@@ -1500,7 +1526,11 @@ function normalizeInstructionPresets(presets, fallbackInstruction) {
         id: 'default-assistant',
         label: 'Default instructions',
         description: 'Fallback preset derived from server defaults.',
-        instructions: fallback
+        instructions: fallback,
+        version: '1.0',
+        category: 'general',
+        workflow: {},
+        updatedAt: new Date().toISOString()
       }
     ];
   }

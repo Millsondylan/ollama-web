@@ -63,8 +63,33 @@ const API_KEYS_FILE = path.join(STORAGE_DIR, 'api-keys.json');
  */
 
 // Defaults are surfaced via GET /api/settings and can be overridden from the UI.
-const DEFAULT_SYSTEM_INSTRUCTIONS =
-  'You are an honest, detail-oriented AI assistant that helps the user accomplish local tasks.';
+const DEFAULT_SYSTEM_INSTRUCTIONS = `<role>
+You are an honest, detail-oriented AI assistant that helps the user accomplish local tasks with precision and clarity.
+</role>
+
+<interaction_rules>
+  <rule>Always provide complete, actionable responses without asking for confirmation unless critical information is missing.</rule>
+  <rule>When given a task, execute it fully and report results rather than suggesting next steps.</rule>
+  <rule>Use structured thinking: analyze the request, plan your approach, execute, and verify.</rule>
+  <rule>If you encounter errors or blockers, attempt reasonable solutions before escalating to the user.</rule>
+</interaction_rules>
+
+<workflow>
+  <step name="understand">Parse the user's request carefully, identifying explicit and implicit requirements.</step>
+  <step name="plan">Outline the approach mentally before responding, considering edge cases.</step>
+  <step name="execute">Provide complete solutions, examples, or explanations as needed.</step>
+  <step name="verify">Double-check your response for accuracy and completeness.</step>
+</workflow>
+
+<output_style>
+  <guideline>Be concise but thorough; avoid unnecessary verbosity.</guideline>
+  <guideline>Use code blocks, lists, or structured formats when they improve clarity.</guideline>
+  <guideline>Prefer showing over telling: provide working examples rather than abstract descriptions.</guideline>
+</output_style>
+
+<finish_criteria>
+Complete tasks fully before responding. Do not end responses with "Would you like me to..." or "Let me know if..." unless genuinely awaiting critical user input.
+</finish_criteria>`;
 
 const DEFAULT_SETTINGS = {
   model: DEFAULT_MODEL,
@@ -76,15 +101,23 @@ const DEFAULT_SETTINGS = {
 };
 
 const AI_CODER_PROMPT_PRESET = `<prompt>
+  <metadata>
+    <version>2.0</version>
+    <updated>2025-01-14</updated>
+    <purpose>Generate complete, autonomous coding agent prompts with strict workflow enforcement</purpose>
+  </metadata>
+
   <role>You are a prompt concierge for autonomous AI coders who work inside existing repositories.</role>
+
   <interaction_rules>
     <rule>Determine whether the user needs an actual response or a prompt for their coding agent. If the user appears to ask for a prompt, output only the prompt, nothing else.</rule>
     <rule>You never write code or run commands yourself; you only produce perfect prompts or concise guidance.</rule>
     <rule>Assume zero prior knowledge of the project. Always instruct the coding agent to begin with discovery, then implementation, continuing until every requested change is fully delivered.</rule>
     <rule>Assume the work happens inside the current working directory and against an existing codebase, not a greenfield project.</rule>
-    <rule>Every transformed prompt must include a professional TODO list that begins with “Search existing files” and drives the agent through discovery → implementation → verification without pausing for user feedback.</rule>
+    <rule>Every transformed prompt must include a professional TODO list that begins with "Search existing files" and drives the agent through discovery → implementation → verification without pausing for user feedback.</rule>
     <rule>Keep prompts compact but fully operational: no placeholders, no mock data, no shortcuts, no denials—only concrete, actionable instructions that ensure full completion.</rule>
     <rule>Explicitly command the AI coder to finish the entire task autonomously; never ask the user for clarification once the prompt is generated.</rule>
+    <rule>CRITICAL: Every prompt MUST include explicit finish criteria: "Complete all tasks. Do not ask the user for next steps. Finish without requesting confirmation."</rule>
   </interaction_rules>
   <model_preferences>
     <option name="Claude Sonnet 4.5">Use for most sessions; strongest long-horizon reasoning and coding.</option>
@@ -190,13 +223,30 @@ const INSTRUCTION_PRESETS = [
     id: 'default-assistant',
     label: 'Honest local assistant',
     description: 'General-purpose helper for local tasks with balanced behavior.',
-    instructions: DEFAULT_SYSTEM_INSTRUCTIONS
+    instructions: DEFAULT_SYSTEM_INSTRUCTIONS,
+    version: '2.0',
+    category: 'general',
+    workflow: {
+      requiresDiscovery: false,
+      autoComplete: true,
+      strictXML: true
+    },
+    updatedAt: '2025-01-14T00:00:00Z'
   },
   {
     id: 'ai-coder-prompt',
     label: 'AI coder prompt concierge',
     description: 'Produces XML prompts for autonomous Claude-based coding agents with discovery-first workflow.',
-    instructions: AI_CODER_PROMPT_PRESET
+    instructions: AI_CODER_PROMPT_PRESET,
+    version: '2.0',
+    category: 'coding',
+    workflow: {
+      requiresDiscovery: true,
+      autoComplete: true,
+      strictXML: true,
+      phases: ['discovery', 'planning', 'implementation', 'verification']
+    },
+    updatedAt: '2025-01-14T00:00:00Z'
   }
 ];
 
@@ -247,6 +297,7 @@ function createDefaultSession() {
     id: DEFAULT_SESSION_ID,
     name: 'Default Session',
     instructions: DEFAULT_SETTINGS.systemInstructions,
+    presetId: 'default-assistant',
     attachments: [],
     history: [],
     createdAt: now,
@@ -262,6 +313,7 @@ function normalizeSession(session, fallbackName = 'Untitled Session') {
     id: session.id || crypto.randomUUID(),
     name: session.name || fallbackName,
     instructions: session.instructions || '',
+    presetId: session.presetId || null,
     attachments: Array.isArray(session.attachments) ? session.attachments : [],
     history: Array.isArray(session.history) ? session.history : [],
     createdAt: session.createdAt || new Date().toISOString(),
@@ -472,6 +524,7 @@ function listSessions() {
     id: session.id,
     name: session.name,
     instructions: session.instructions,
+    presetId: session.presetId || null,
     attachments: attachments.map((att) => ({
       id: att.id,
       name: att.name,
@@ -499,6 +552,7 @@ function buildSessionPayload(body = {}) {
     name: normalizedName,
     instructions:
       typeof body.instructions === 'string' ? body.instructions : body.instructions ? String(body.instructions) : undefined,
+    presetId: typeof body.presetId === 'string' ? body.presetId : undefined,
     attachments: Array.isArray(body.attachments) ? sanitizeAttachments(body.attachments) : undefined,
     history: Array.isArray(body.history) ? body.history : undefined,
     createdAt: body.createdAt || new Date().toISOString(),
@@ -516,6 +570,8 @@ async function createOrUpdateSession(payload) {
     name: session.name || existing?.name || 'Untitled Session',
     instructions:
       session.instructions !== undefined ? session.instructions : existing?.instructions || '',
+    presetId:
+      session.presetId !== undefined ? session.presetId : existing?.presetId || null,
     attachments:
       session.attachments !== undefined ? session.attachments : existing?.attachments || [],
     history: existing?.history || [],
@@ -603,17 +659,20 @@ function applyStreamingGuards(req, res, label = 'stream') {
   };
 }
 
-function startSseHeartbeat(res, label = 'stream') {
+function startSseHeartbeat(res, label = 'stream', metadata = {}) {
   if (!STREAM_HEARTBEAT_INTERVAL_MS || STREAM_HEARTBEAT_INTERVAL_MS <= 0) {
     return () => {};
   }
+
+  const presetInfo = metadata.presetId ? ` preset=${metadata.presetId}` : '';
+  const sessionInfo = metadata.sessionId ? ` session=${metadata.sessionId}` : '';
 
   const timer = setInterval(() => {
     try {
       res.write(`:heartbeat ${Date.now()}\n\n`);
       res.flush?.();
     } catch (error) {
-      console.warn(`[${label}] heartbeat failed: ${error.message}`);
+      console.warn(`[${label}${sessionInfo}${presetInfo}] heartbeat failed: ${error.message}`);
     }
   }, STREAM_HEARTBEAT_INTERVAL_MS);
 
@@ -964,7 +1023,9 @@ app.post('/api/chat', async (req, res) => {
       assistant: responseText,
       model: modelToUse,
       endpoint: endpointToUse,
-      sessionId: session.id
+      sessionId: session.id,
+      presetId: session.presetId || null,
+      instructions: systemPrompt ? systemPrompt.slice(0, 200) : null
     };
 
     await pushHistory(session.id, entry);
@@ -1049,7 +1110,9 @@ app.post('/api/generate', async (req, res) => {
       });
       res.flushHeaders?.();
       releaseStreamingGuards = applyStreamingGuards(req, res, 'api-generate');
-      stopHeartbeat = startSseHeartbeat(res, 'api-generate');
+      stopHeartbeat = startSseHeartbeat(res, 'api-generate', {
+        model: normalizedPayload.model
+      });
 
       const upstreamStream = toNodeReadable(upstream.body);
       if (!upstreamStream) {
@@ -1186,7 +1249,11 @@ app.post('/api/chat/stream', async (req, res) => {
 
   try {
     releaseStreamingGuards = applyStreamingGuards(req, res, 'chat-stream');
-    stopHeartbeat = startSseHeartbeat(res, 'chat-stream');
+    stopHeartbeat = startSseHeartbeat(res, 'chat-stream', {
+      sessionId: session.id,
+      presetId: session.presetId,
+      model: modelToUse
+    });
     const endpoint = withTrailingSlash(endpointToUse);
     await ensureOllamaReachable(endpoint);
 
@@ -1271,7 +1338,9 @@ app.post('/api/chat/stream', async (req, res) => {
       assistant: aggregate,
       model: modelToUse,
       endpoint: endpointToUse,
-      sessionId: session.id
+      sessionId: session.id,
+      presetId: session.presetId || null,
+      instructions: combinedInstructions ? combinedInstructions.slice(0, 200) : null
     };
 
     await pushHistory(session.id, entry);

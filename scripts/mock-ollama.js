@@ -9,7 +9,8 @@ function startMockOllama({ port = 11434, streamDelayMs = 50 } = {}) {
       res.end(
         JSON.stringify({
           models: [
-            { name: 'mock-model', size: 1024, digest: 'mock-digest', modified_at: new Date().toISOString() }
+            { name: 'mock-model', size: 1024, digest: 'mock-digest', modified_at: new Date().toISOString() },
+            { name: 'mock-model thinking', size: 1536, digest: 'mock-digest-thinking', modified_at: new Date().toISOString() }
           ]
         })
       );
