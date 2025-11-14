@@ -1,0 +1,178 @@
+{
+  "name": "Ollama Integration Specialist",
+  "domain": "ollama-api",
+  "version": "1.0",
+  "expertise": [
+    "ollama-http-api",
+    "model-management",
+    "connectivity-checks",
+    "generation-endpoints",
+    "streaming-ndjson"
+  ],
+  "api_contracts": {
+    "ensureOllamaReachable": {
+      "location": "server.js:696-710",
+      "purpose": "Health check via /api/tags",
+      "params": ["endpoint: string"],
+      "returns": "Promise<boolean>",
+      "timeout": "OLLAMA_CONNECTIVITY_TIMEOUT_MS (10000ms default)",
+      "errors": ["ECONNREFUSED", "TIMEOUT", "INVALID_RESPONSE"]
+    },
+    "POST /api/generate": {
+      "location": "server.js:1059-1205",
+      "purpose": "Direct proxy to Ollama generation",
+      "request": {
+        "model": "string (required)",
+        "prompt": "string (required unless images provided)",
+        "stream": "boolean (optional, default: false)",
+        "system": "string (optional)",
+        "template": "string (optional)",
+        "options": "object (optional)",
+        "images": "array (max 4, base64 encoded)"
+      },
+      "response_streaming": {
+        "format": "NDJSON",
+        "chunk_example": "{\"model\":\"qwen3:1.7B\",\"response\":\"token\",\"done\":false}",
+        "final_chunk": "{\"done\":true,\"response\":\"full text\",\"context\":[...]}"
+      },
+      "response_non_streaming": {
+        "response": "string",
+        "context": "array",
+        "done": "boolean"
+      }
+    },
+    "GET /api/models": {
+      "location": "server.js:941-987",
+      "purpose": "List available Ollama models",
+      "ollama_endpoint": "/api/tags",
+      "response": {
+        "models": [
+          {
+            "name": "string",
+            "size": "number",
+            "digest": "string",
+            "modifiedAt": "ISO8601"
+          }
+        ]
+      }
+    }
+  },
+  "patterns": {
+    "connectivity_check": {
+      "description": "Always verify Ollama is reachable before making requests",
+      "code_template": "const reachable = await ensureOllamaReachable(endpoint);\nif (!reachable) throw new Error('Ollama unreachable');",
+      "location": "server.js:696-710",
+      "timeout": "10 seconds (configurable)"
+    },
+    "endpoint_normalization": {
+      "description": "Always add trailing slash to Ollama endpoints",
+      "code_template": "const endpoint = value.endsWith('/') ? value : `${value}/`;",
+      "location": "server.js:255-260",
+      "critical": true,
+      "reason": "Missing slash breaks URL construction"
+    },
+    "input_normalization": {
+      "description": "Sanitize and validate generation inputs",
+      "code_template": "function normalizeGenerateInputs(body) {\n  return {\n    model: typeof body.model === 'string' && body.model.trim().length ? body.model.trim() : body.model,\n    prompt: typeof body.prompt === 'string' ? body.prompt.trim() : '',\n    stream: Boolean(body.stream),\n    system: typeof body.system === 'string' && body.system.trim().length ? body.system : undefined,\n    images: Array.isArray(body.images) ? body.images.slice(0, MAX_GENERATE_IMAGES) : undefined\n  };\n}",
+      "location": "server.js:712-728",
+      "limits": {
+        "max_images": 4,
+        "max_prompt_length": "unlimited",
+        "required_fields": ["model", "prompt"]
+      }
+    },
+    "dual_mode_generation": {
+      "description": "Support both HTTP API and CLI-based generation",
+      "primary_mode": "HTTP API (POST /api/generate)",
+      "fallback_mode": "CLI spawn (runOllama function)",
+      "cli_location": "server.js:870-940",
+      "use_cases": {
+        "http": "Production, streaming, full feature support",
+        "cli": "Legacy, simple prompts, no streaming"
+      }
+    }
+  },
+  "environment_variables": {
+    "OLLAMA_HOST": {
+      "description": "Ollama API endpoint",
+      "default": "http://127.0.0.1:11434",
+      "usage": "Base URL for all Ollama API calls"
+    },
+    "OLLAMA_MODEL": {
+      "description": "Default model to use",
+      "default": "qwen3:1.7B",
+      "fallback": "First available model from /api/tags"
+    },
+    "OLLAMA_CONNECTIVITY_TIMEOUT_MS": {
+      "description": "Timeout for health checks",
+      "default": 10000,
+      "type": "number"
+    },
+    "OLLAMA_GENERATION_TIMEOUT_MS": {
+      "description": "Timeout for non-streaming generation",
+      "default": 600000,
+      "type": "number",
+      "note": "10 minutes"
+    },
+    "OLLAMA_STREAM_TIMEOUT_MS": {
+      "description": "Timeout for streaming requests",
+      "default": 0,
+      "note": "0 = no timeout (recommended)"
+    },
+    "MAX_GENERATE_IMAGES": {
+      "description": "Maximum images per request",
+      "default": 4,
+      "type": "number"
+    }
+  },
+  "common_mistakes": [
+    {
+      "mistake": "Forgetting trailing slash on endpoint URL",
+      "impact": "Malformed URLs like http://localhost:11434api/generate",
+      "fix": "Always use withTrailingSlash() helper",
+      "location": "server.js:255-260"
+    },
+    {
+      "mistake": "Not handling ECONNREFUSED gracefully",
+      "impact": "Ugly errors shown to user",
+      "fix": "Use ensureOllamaReachable() before requests, show friendly OLLAMA_UNAVAILABLE_MESSAGE",
+      "location": "server.js:696-710"
+    },
+    {
+      "mistake": "Assuming model exists without verification",
+      "impact": "404 errors from Ollama",
+      "fix": "Check GET /api/models first, show 'ollama pull' message",
+      "location": "server.js:941-987"
+    },
+    {
+      "mistake": "Not limiting images array",
+      "impact": "Excessive payload sizes",
+      "fix": "Slice to MAX_GENERATE_IMAGES (4)",
+      "location": "server.js:712-728"
+    }
+  ],
+  "error_messages": {
+    "OLLAMA_UNAVAILABLE_MESSAGE": {
+      "text": "Cannot reach Ollama at {endpoint}. Ensure Ollama is running and accessible.",
+      "when": "ensureOllamaReachable() returns false",
+      "location": "server.js:50"
+    },
+    "MODEL_NOT_FOUND": {
+      "text": "Model '{model}' not found. Run: ollama pull {model}",
+      "when": "404 response from /api/generate"
+    }
+  },
+  "testing": {
+    "verification_script": "scripts/verify.js",
+    "tests": [
+      "verifyNonStreaming() - POST /api/generate (stream: false)",
+      "verifyStreaming() - POST /api/generate (stream: true)",
+      "verifyChatStream() - POST /api/chat/stream with heartbeat validation"
+    ],
+    "mock_server": "scripts/mock-ollama.js"
+  },
+  "dependencies": {
+    "fetch": "Native fetch (Node 18+) or node-fetch fallback",
+    "timeout_implementation": "AbortController with signal"
+  }
+}

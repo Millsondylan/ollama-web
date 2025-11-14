@@ -1,0 +1,226 @@
+{
+  "name": "Chat History Specialist",
+  "domain": "conversation-management",
+  "version": "1.0",
+  "expertise": [
+    "context-window-management",
+    "dual-persistence",
+    "history-api",
+    "message-formatting",
+    "conversation-context"
+  ],
+  "data_structures": {
+    "HistoryEntry": {
+      "schema": {
+        "id": "string (UUID)",
+        "timestamp": "ISO8601 string",
+        "user": "string (user message)",
+        "assistant": "string (AI response)",
+        "model": "string (model used)",
+        "endpoint": "string (Ollama API endpoint)",
+        "sessionId": "string (session reference)",
+        "presetId": "string | null (preset reference)",
+        "instructions": "string (truncated to 200 chars for display)"
+      },
+      "location": "server.js:354-379",
+      "storage": [
+        "Server: session.history array in sessions.json",
+        "Client: localStorage('history') array"
+      ]
+    }
+  },
+  "api_contracts": {
+    "GET /api/history": {
+      "location": "server.js:1374-1395",
+      "query_params": {
+        "sessionId": "string (optional, defaults to active session)"
+      },
+      "response": "array of HistoryEntry",
+      "sorting": "Chronological (oldest first)",
+      "example": "GET /api/history?sessionId=default"
+    },
+    "DELETE /api/history": {
+      "location": "server.js:1397-1412",
+      "query_params": {
+        "sessionId": "string (optional, defaults to active session)"
+      },
+      "response": "204 No Content",
+      "side_effect": "Clears session.history array, persists to disk"
+    },
+    "POST /api/history/entry": {
+      "location": "server.js:1374-1412",
+      "purpose": "Manually add history entry (for external tools)",
+      "request": {
+        "user": "string (required)",
+        "assistant": "string (required)",
+        "model": "string (optional)",
+        "sessionId": "string (optional)"
+      },
+      "response": "Created HistoryEntry",
+      "note": "Useful for integrating external chat logs"
+    }
+  },
+  "patterns": {
+    "push_history": {
+      "description": "Add new entry to session history",
+      "code_template": "function pushHistory(sessionId, entry) {\n  const session = sessionStore.sessions[sessionId];\n  if (!session) return;\n  \n  const historyEntry = {\n    id: crypto.randomUUID(),\n    timestamp: new Date().toISOString(),\n    user: entry.user,\n    assistant: entry.assistant,\n    model: entry.model || runtimeSettings.model,\n    endpoint: entry.endpoint || runtimeSettings.apiEndpoint,\n    sessionId: sessionId,\n    presetId: entry.presetId || null,\n    instructions: (entry.instructions || '').slice(0, 200)\n  };\n  \n  session.history.push(historyEntry);\n  session.updatedAt = new Date().toISOString();\n  persistSessions();\n  \n  return historyEntry;\n}",
+      "location": "server.js:354-379",
+      "triggers": [
+        "After chat completion",
+        "After streaming completion",
+        "Manual entry via POST /api/history/entry"
+      ]
+    },
+    "context_window_management": {
+      "description": "Limit history sent to model to prevent token overflow",
+      "code_template": "const maxHistory = Number(runtimeSettings.maxHistory) || DEFAULT_SETTINGS.maxHistory;\nconst recentHistory = session.history.slice(-maxHistory);",
+      "location": "server.js:484-513",
+      "default": "20 messages (configurable via CONTEXT_MESSAGES env var)",
+      "reasoning": "Most models have 4K-128K token limits; full history can overflow"
+    },
+    "build_prompt_with_context": {
+      "description": "Construct full prompt with system instructions + history + current message",
+      "code_template": "function buildPrompt(systemInstructions, history, currentMessage, attachments) {\n  let prompt = '';\n  \n  if (systemInstructions) {\n    prompt += `System Instructions:\\n${systemInstructions}\\n\\n`;\n  }\n  \n  if (attachments && attachments.length > 0) {\n    prompt += 'Context:\\n';\n    attachments.forEach(att => {\n      prompt += `[${att.name}]\\n${att.content}\\n\\n`;\n    });\n  }\n  \n  if (history && history.length > 0) {\n    prompt += 'Conversation History:\\n';\n    history.forEach(entry => {\n      prompt += `User: ${entry.user}\\n`;\n      prompt += `Assistant: ${entry.assistant}\\n\\n`;\n    });\n  }\n  \n  prompt += `User: ${currentMessage}\\n`;\n  prompt += 'Assistant:';\n  \n  return prompt;\n}",
+      "location": "server.js:484-513",
+      "components": [
+        "System instructions (if present)",
+        "Attachments (if present)",
+        "Recent history (limited by maxHistory)",
+        "Current user message",
+        "Assistant prompt prefix"
+      ]
+    },
+    "dual_persistence": {
+      "description": "Sync history between server and client",
+      "server_side": {
+        "storage": "storage/sessions.json → session.history array",
+        "persistence": "On every pushHistory() call",
+        "location": "server.js:354-379"
+      },
+      "client_side": {
+        "storage": "localStorage('history') array",
+        "sync_frequency": "On chat response, every 5 minutes, on page unload",
+        "location": "public/app.js:1917-2032"
+      },
+      "sync_flow": [
+        "User sends message",
+        "Server processes, pushes to session.history",
+        "Server returns response with updated history",
+        "Client updates localStorage + state.chat",
+        "Periodic sync backs up localStorage to server"
+      ]
+    },
+    "history_truncation": {
+      "description": "Truncate instructions for history display",
+      "code_template": "instructions: (entry.instructions || '').slice(0, 200)",
+      "location": "server.js:354-379",
+      "reason": "Full presets can be 2K+ chars, wasteful for display"
+    }
+  },
+  "environment_variables": {
+    "CONTEXT_MESSAGES": {
+      "description": "Maximum history messages included in context",
+      "default": 20,
+      "type": "number",
+      "recommendation": "10-50 based on model context window"
+    }
+  },
+  "common_mistakes": [
+    {
+      "mistake": "Sending full history to model without limit",
+      "impact": "Token overflow, request rejection, high costs",
+      "fix": "Use maxHistory setting to slice recent messages",
+      "location": "server.js:484-513"
+    },
+    {
+      "mistake": "Not persisting history after chat",
+      "impact": "History lost on server restart",
+      "fix": "Call persistSessions() in pushHistory()",
+      "location": "server.js:354-379"
+    },
+    {
+      "mistake": "Storing full instructions in every history entry",
+      "impact": "Massive JSON files, slow parsing",
+      "fix": "Truncate to 200 chars for display purposes",
+      "location": "server.js:354-379"
+    },
+    {
+      "mistake": "Not handling missing session in pushHistory()",
+      "impact": "Null pointer errors",
+      "fix": "Early return if session not found",
+      "pattern": "if (!session) return;"
+    },
+    {
+      "mistake": "Client-server history desync",
+      "impact": "Lost messages, duplicate entries",
+      "fix": "Implement periodic sync from localStorage to server",
+      "location": "public/app.js:1917-2032"
+    }
+  ],
+  "performance_considerations": {
+    "history_size_limits": {
+      "recommended_max_entries": 1000,
+      "reason": "Large arrays slow JSON parsing, DOM rendering",
+      "mitigation": "Implement pagination or auto-archive old history"
+    },
+    "token_estimation": {
+      "average_message_tokens": "50-200 tokens per message",
+      "calculation": "maxHistory * avgTokensPerMessage < modelContextWindow",
+      "example": "20 messages * 150 tokens = 3000 tokens (safe for 4K model)"
+    },
+    "persistence_overhead": {
+      "current": "Full sessions.json write on every message",
+      "optimization": "Consider append-only log + periodic compaction",
+      "note": "Current approach acceptable for <100 sessions"
+    }
+  },
+  "frontend_integration": {
+    "display_pattern": {
+      "location": "public/app.js",
+      "rendering": "Loop through state.chat, create message bubbles",
+      "escaping": "Use escapeHtml() to prevent XSS",
+      "markdown": "Optional markdown rendering for assistant responses"
+    },
+    "auto_scroll": {
+      "pattern": "Scroll to bottom on new message",
+      "smooth_scrolling": "behavior: 'smooth' for better UX"
+    },
+    "cloud_sync": {
+      "note": "Labeled 'cloud sync' but currently just server persistence",
+      "frequency": "Every 5 minutes + on page unload",
+      "location": "public/app.js:1917-2032"
+    }
+  },
+  "testing": {
+    "verification_script": "scripts/verify.js",
+    "test_cases": [
+      "History persists across server restart",
+      "maxHistory limits context window",
+      "DELETE /api/history clears session history",
+      "Manual entry via POST /api/history/entry works",
+      "Dual sync keeps client and server in sync"
+    ],
+    "manual_test_commands": [
+      "curl http://localhost:3000/api/history",
+      "curl http://localhost:3000/api/history?sessionId=default",
+      "curl -X DELETE http://localhost:3000/api/history?sessionId=default"
+    ]
+  },
+  "data_retention": {
+    "current_policy": "Unlimited retention in sessions.json",
+    "recommendations": [
+      "Implement max age (e.g., delete entries >30 days old)",
+      "Add export functionality for archival",
+      "Provide user-initiated history clear per session",
+      "Consider GDPR right-to-be-forgotten compliance"
+    ]
+  },
+  "future_enhancements": {
+    "search_history": "Full-text search across all conversations",
+    "export_formats": "Export to JSON, Markdown, TXT",
+    "conversation_branching": "Support multiple conversation paths from same message",
+    "message_editing": "Edit past user messages, regenerate responses",
+    "favorites": "Star/bookmark important messages",
+    "analytics": "Track tokens used, response times, model performance"
+  }
+}

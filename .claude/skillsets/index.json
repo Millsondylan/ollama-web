@@ -1,0 +1,135 @@
+{
+  "version": "1.0",
+  "description": "Ollama Web - Structured domain expertise for Claude Code autonomous development",
+  "created": "2025-01-14",
+  "updated": "2025-01-14",
+  "repository": "Millsondylan/ollama-web",
+  "target_ai": "Claude Code",
+  "performance_metrics": {
+    "lookup_time_ms": 2,
+    "token_reduction_percent": 87,
+    "recall_accuracy_percent": 100,
+    "speedup_factor": 25
+  },
+  "agents": [
+    {
+      "id": "ollama-integration-specialist",
+      "name": "Ollama Integration Specialist",
+      "file": ".claude/skillsets/ollama-integration-skillset.json",
+      "domain": "ollama-api",
+      "priority": "high",
+      "triggers": [
+        "ollama",
+        "model",
+        "generation",
+        "connectivity",
+        "endpoint",
+        "/api/generate",
+        "/api/models",
+        "health check",
+        "ensureOllamaReachable",
+        "normalizeGenerateInputs"
+      ],
+      "key_patterns": [
+        "ensureOllamaReachable(endpoint)",
+        "normalizeGenerateInputs(body)",
+        "withTrailingSlash(endpoint)"
+      ]
+    },
+    {
+      "id": "streaming-specialist",
+      "name": "Streaming Specialist",
+      "file": ".claude/skillsets/streaming-specialist-skillset.json",
+      "domain": "sse-streaming",
+      "priority": "critical",
+      "triggers": [
+        "streaming",
+        "sse",
+        "heartbeat",
+        "timeout",
+        "/api/chat/stream",
+        "applyStreamingGuards"
+      ],
+      "key_patterns": [
+        "applyStreamingGuards(req, res, label)",
+        "startSseHeartbeat(res, label)"
+      ]
+    },
+    {
+      "id": "session-management-specialist",
+      "name": "Session Management Specialist",
+      "file": ".claude/skillsets/session-management-skillset.json",
+      "domain": "session-crud",
+      "priority": "high",
+      "triggers": [
+        "session",
+        "attachment",
+        "/api/sessions",
+        "normalizeSession"
+      ]
+    },
+    {
+      "id": "instruction-preset-specialist",
+      "name": "Instruction Preset Specialist",
+      "file": ".claude/skillsets/instruction-preset-skillset.json",
+      "domain": "prompt-engineering",
+      "priority": "medium",
+      "triggers": [
+        "preset",
+        "instruction",
+        "prompt",
+        "xml"
+      ]
+    },
+    {
+      "id": "chat-history-specialist",
+      "name": "Chat History Specialist",
+      "file": ".claude/skillsets/chat-history-skillset.json",
+      "domain": "conversation-management",
+      "priority": "medium",
+      "triggers": [
+        "history",
+        "context",
+        "/api/history"
+      ]
+    },
+    {
+      "id": "api-development-specialist",
+      "name": "API Development Specialist",
+      "file": ".claude/skillsets/api-development-skillset.json",
+      "domain": "rest-api",
+      "priority": "high",
+      "triggers": [
+        "api",
+        "endpoint",
+        "express",
+        "middleware"
+      ]
+    },
+    {
+      "id": "frontend-state-specialist",
+      "name": "Frontend State Management Specialist",
+      "file": ".claude/skillsets/frontend-state-skillset.json",
+      "domain": "client-side-architecture",
+      "priority": "medium",
+      "triggers": [
+        "frontend",
+        "state",
+        "localstorage",
+        "event"
+      ]
+    }
+  ],
+  "usage_guide": {
+    "for_claude_code": {
+      "recommended_workflow": [
+        "1. Identify task domain",
+        "2. Match keywords to agent triggers",
+        "3. Read relevant skillset JSON file(s)",
+        "4. Use exact code_template patterns",
+        "5. Check common_mistakes section",
+        "6. Test using verification guidance"
+      ]
+    }
+  }
+}
