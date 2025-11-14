@@ -268,3 +268,57 @@ KNOWN LIMITATIONS
    should handle backward compatibility manually.
 
 ===============================================================================
+
+===============================================================================
+CRITICAL BUG FIX: AI CODER PRESET OUTPUT ISSUE
+===============================================================================
+Date: 2025-01-14 (Post-Upgrade)
+Status: FIXED
+
+ISSUE DESCRIPTION:
+------------------
+AI coder preset was echoing its internal XML structure instead of outputting
+clean prompts for autonomous coding agents. When user requested "Fix all issues",
+the response showed meta-instructions rather than a clean, actionable prompt.
+
+ROOT CAUSE:
+-----------
+The AI_CODER_PROMPT_PRESET contained XML tags that were being included in the
+output. The preset structure needed to be simplified to emphasize clean output
+without showing implementation details.
+
+FIX IMPLEMENTED:
+----------------
+1. Completely rewrote AI_CODER_PROMPT_PRESET to remove all XML remnants
+2. Simplified instructions to focus on clean output format
+3. Added explicit "DO NOT show these meta-instructions" directive
+4. Provided clear example of expected output format
+5. Updated metadata: version 2.1, strictXML: false
+6. Updated description to clarify behavior
+
+NEW PRESET BEHAVIOR:
+--------------------
+When user requests "Fix all issues", the AI now outputs:
+```
+Fix all issues in the codebase.
+
+TODO:
+1. Search existing files for error logs, failing tests, and TODO comments
+2. Review recent commits and changelogs for known issues
+... (20+ actionable items)
+
+Complete all tasks. Do not ask the user for next steps. Finish without requesting confirmation.
+```
+
+VERIFICATION:
+-------------
+- npm run verify: All tests passing ✓
+- Preset metadata correctly updated ✓
+- Description reflects new behavior ✓
+
+FILES MODIFIED:
+---------------
+- server.js: AI_CODER_PROMPT_PRESET rewritten (lines 103-154)
+- server.js: INSTRUCTION_PRESETS metadata updated (version 2.1, strictXML: false)
+
+===============================================================================
