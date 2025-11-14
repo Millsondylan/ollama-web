@@ -1,0 +1,164 @@
+# Ollama Web - Cursor AI Rules
+
+## Domain Expertise
+
+**IMPORTANT**: Consult `.cursor/skillsets/` for structured domain expertise.
+
+All project-specific knowledge is stored as JSON skillsets for 10-25x faster context loading and perfect recall. Before implementing features or debugging issues, reference the appropriate skillset:
+
+- **Ollama Integration**: `.cursor/skillsets/ollama-integration-skillset.json`
+- **Streaming (SSE)**: `.cursor/skillsets/streaming-specialist-skillset.json`
+- **Session Management**: `.cursor/skillsets/session-management-skillset.json`
+- **Instruction Presets**: `.cursor/skillsets/instruction-preset-skillset.json`
+- **Chat History**: `.cursor/skillsets/chat-history-skillset.json`
+- **API Development**: `.cursor/skillsets/api-development-skillset.json`
+- **Frontend State**: `.cursor/skillsets/frontend-state-skillset.json`
+
+**Quick Reference**: See `.cursor/skillsets/index.json` for trigger keywords and agent descriptions.
+
+## Project Overview
+
+This is an Ollama Web interface - a vanilla JavaScript SPA with Express backend that provides a chat interface for local Ollama models.
+
+**Tech Stack**:
+- Backend: Express 5.1.0 (CommonJS, Node.js)
+- Frontend: Vanilla JavaScript (no framework)
+- Storage: Filesystem JSON (sessions.json, api-keys.json)
+- Ollama: HTTP API integration with streaming support
+
+## Code Quality Standards
+
+1. **Always read skillsets first** - Don't guess API contracts or patterns
+2. **Run tests** - Use `scripts/verify.js` after backend changes
+3. **Preserve existing patterns** - Follow normalization, validation, and error handling patterns from skillsets
+4. **Security** - Never expose secrets, always validate input, use sanitization functions
+5. **Performance** - Use streaming guards for SSE, limit history context, debounce expensive operations
+
+## Common Patterns (Quick Reference)
+
+### Ollama Connectivity
+```javascript
+const reachable = await ensureOllamaReachable(endpoint);
+```
+See: `.cursor/skillsets/ollama-integration-skillset.json`
+
+### Streaming Setup
+```javascript
+applyStreamingGuards(req, res, 'label');
+startSseHeartbeat(res, 'label');
+```
+See: `.cursor/skillsets/streaming-specialist-skillset.json`
+
+### Session Normalization
+```javascript
+const session = normalizeSession(rawSession);
+const attachments = sanitizeAttachments(rawAttachments);
+```
+See: `.cursor/skillsets/session-management-skillset.json`
+
+### State Updates
+```javascript
+// Update state then notify
+state.settings.model = 'qwen3:1.7B';
+notifySettingsSubscribers();
+```
+See: `.cursor/skillsets/frontend-state-skillset.json`
+
+## Critical Rules
+
+### Backend (server.js)
+- **Timeouts**: Set to 0 for streaming routes (req/res/socket.setTimeout(0))
+- **Normalization**: Always use normalization functions before persistence
+- **Trailing Slash**: Always use `withTrailingSlash()` for Ollama endpoints
+- **Error Handling**: Wrap async routes in try-catch, return appropriate status codes
+
+### Frontend (app.js)
+- **Escaping**: Use `textContent` or `escapeHtml()` for user content
+- **LocalStorage**: Wrap in try-catch, handle QuotaExceededError
+- **Events**: Dispatch CustomEvent for state changes
+- **Validation**: Always validate localStorage data before use
+
+### Security
+- Never commit API secrets
+- Hash API keys with SHA-256
+- Sanitize all user input
+- No SQL injection risk (filesystem only), but validate all inputs anyway
+
+## Testing
+
+- **Verification**: `node scripts/verify.js`
+- **Mock Server**: `node scripts/mock-ollama.js`
+- **Manual Tests**: See `scripts/curl-examples.sh`
+
+## File Structure
+
+```
+server.js (1709 lines)     - All backend logic
+public/app.js (2033 lines) - All frontend logic
+public/index.html          - SPA shell with templates
+storage/                   - JSON persistence
+  sessions.json            - Session store
+  api-keys.json            - API key store
+scripts/                   - Testing utilities
+.cursor/skillsets/         - Structured domain expertise
+```
+
+## Environment Variables
+
+See individual skillsets for complete reference. Key vars:
+- `OLLAMA_HOST` - Ollama API endpoint (default: http://127.0.0.1:11434)
+- `OLLAMA_MODEL` - Default model (default: qwen3:1.7B)
+- `STREAM_HEARTBEAT_INTERVAL_MS` - SSE heartbeat frequency (default: 15000)
+- `MAX_ATTACHMENTS` - Max attachments per session (default: 10)
+- `CONTEXT_MESSAGES` - History context window (default: 20)
+
+## Development Workflow
+
+1. **Understand the domain** - Read relevant skillset(s)
+2. **Find the pattern** - Check skillset for code templates
+3. **Follow conventions** - Use existing normalization/validation patterns
+4. **Test changes** - Run verification scripts
+5. **Update skillsets** - If adding new patterns, update relevant skillset
+
+## Anti-Patterns (Don't Do This)
+
+❌ Guessing API contracts instead of reading skillsets
+❌ Not setting timeouts to 0 on streaming routes
+❌ Forgetting to normalize sessions/attachments before saving
+❌ Not handling localStorage errors
+❌ Directly mutating state without notifying subscribers
+❌ Exposing sensitive data in error messages
+❌ Assuming Ollama is always reachable
+
+## Performance Tips
+
+- JSON skillsets load 25x faster than prose rules
+- Use skillsets for perfect recall of patterns
+- Reference specific sections via JSON paths
+- Compose multiple agents for complex tasks
+
+## MCP Integration (Optional)
+
+If using Legion MCP tools:
+```javascript
+// Auto-select agent based on task
+const agent = await legion.selectAgent({
+  task: "implement streaming endpoint"
+});
+
+// Query specific pattern
+const pattern = await legion.knowledge({
+  query: "session normalization"
+});
+```
+
+## Questions?
+
+1. Check `.cursor/skillsets/index.json` for agent catalog
+2. Read relevant skillset for detailed patterns
+3. Check `scripts/verify.js` for test examples
+4. See UPDATES.txt for recent changes and fixes
+
+---
+
+**Remember**: Skillsets contain exact code templates, API contracts, common mistakes, and best practices. Always consult them before implementing features or debugging issues. They're your source of truth for this codebase.
