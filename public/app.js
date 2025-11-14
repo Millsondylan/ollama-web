@@ -1377,26 +1377,18 @@ function finalizeThinkingEntry(entry, thinkingText, responseText) {
   // Remove live-entry class so it doesn't get cleared
   entry.classList.remove('live-entry');
 
-  // Update label
+  // Update label to show it's the response
   const label = entry.querySelector('.thinking-label');
   if (label) {
-    label.textContent = 'Thinking complete';
+    label.textContent = 'Response';
   }
 
-  // Add response section after thinking
-  const thinkingSection = entry.querySelector('.thinking-section');
-  if (thinkingSection) {
-    const responseSection = document.createElement('div');
-    responseSection.className = 'response-section';
-    responseSection.innerHTML = `
-      <div class="response-header">
-        <strong>Response:</strong>
-      </div>
-      <div class="response-content">
-        <p>${escapeHtml(responseText)}</p>
-      </div>
-    `;
-    entry.appendChild(responseSection);
+  // Collapse the thinking section by default after completion
+  const toggleBtn = entry.querySelector('.thinking-toggle-btn');
+  const content = entry.querySelector('.thinking-content');
+  if (toggleBtn && content) {
+    content.classList.add('collapsed');
+    toggleBtn.classList.remove('expanded');
   }
 
   // Auto-scroll
