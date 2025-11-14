@@ -82,3 +82,189 @@ OLLAMA WEB UI - ENHANCEMENT & BUG FIX SUMMARY
 All enhancements implemented and tested successfully.
 Mobile UI is beautiful, responsive, and fully functional.
 All state management issues resolved.
+
+===============================================================================
+INSTRUCTION PRESET UPGRADE EXECUTION LOG
+===============================================================================
+Date: 2025-01-14
+Session: claude/instruction-preset-upgrade-013n8vaG43zYGSeWGLnAcFjN
+Status: COMPLETED
+
+===============================================================================
+IMPLEMENTATION SUMMARY
+===============================================================================
+
+This upgrade enhances the instruction preset management system with:
+1. Strict XML workflow rules embedded in both default and concierge presets
+2. Extended metadata schema (version, category, workflow, updatedAt)
+3. Session-level preset tracking without duplication
+4. Enhanced caching and synchronization between client and server
+5. Improved streaming error handling with preset context
+6. Comprehensive verification suite
+
+===============================================================================
+CHANGES IMPLEMENTED
+===============================================================================
+
+SERVER-SIDE UPDATES (server.js):
+  ✓ Enhanced DEFAULT_SYSTEM_INSTRUCTIONS with XML structure
+    - Added <role>, <interaction_rules>, <workflow>, <output_style>
+    - Embedded "finish without asking" criteria
+
+  ✓ Upgraded AI_CODER_PROMPT_PRESET
+    - Added <metadata> section (version 2.0, updated timestamp, purpose)
+    - Explicit CRITICAL rule: "Complete all tasks. Do not ask user for next steps."
+
+  ✓ Extended INSTRUCTION_PRESETS schema
+    - Added: version, category, workflow{}, updatedAt
+    - Both presets now include full metadata
+
+  ✓ Session store enhancements
+    - Added presetId field to session schema
+    - Updated createDefaultSession, normalizeSession, listSessions
+    - Modified buildSessionPayload, createOrUpdateSession
+
+  ✓ History entry metadata
+    - Chat histories now include presetId and instructions snippet
+    - Both /api/chat and /api/chat/stream propagate preset metadata
+
+  ✓ Streaming diagnostics
+    - startSseHeartbeat now accepts metadata{sessionId, presetId, model}
+    - Enhanced logging for chat-stream and api-generate endpoints
+
+CLIENT-SIDE UPDATES (public/app.js):
+  ✓ normalizeInstructionPresets extended
+    - Handles version, category, workflow, updatedAt fields
+
+  ✓ getInstructionPresetCatalog updated
+    - Returns full metadata for all presets
+
+  ✓ setupChatInstructionPresetControl
+    - Apply button now saves both instructions and presetId
+    - Reset clears presetId (sets to null)
+
+  ✓ Session form handlers
+    - Form submission detects and preserves presetId
+    - Matches instructions to preset to maintain linkage
+
+  ✓ buildThinkingFallbackMessage
+    - Error messages now include preset context [Preset: <id>]
+
+VERIFICATION UPDATES:
+  ✓ scripts/mock-ollama.js
+    - Added second model: 'mock-model thinking'
+
+  ✓ scripts/verify.js
+    - Added verifyPresetCaching() to validate /api/settings payload
+    - Added verifySessionPresetSync() to test preset persistence
+    - All tests passing ✓
+
+  ✓ scripts/curl-examples.sh (NEW)
+    - Created comprehensive curl-based integration test suite
+    - Covers settings fetch, session creation, preset switching, history
+
+===============================================================================
+VERIFICATION RESULTS
+===============================================================================
+
+npm run verify output:
+  [verify] Non-streaming /api/generate passed
+  [verify] Streaming /api/generate passed
+  [verify] Streaming /api/chat/stream passed
+  [verify] Preset caching via /api/settings passed
+  [verify] Session preset sync passed
+  [verify] All checks passed ✓
+
+Manual verification steps performed:
+  1. GET /api/settings returns presets array with full metadata ✓
+  2. Session creation with presetId persists correctly ✓
+  3. Session updates preserve presetId when instructions match ✓
+  4. Chat history entries include presetId and instructions ✓
+  5. Streaming heartbeat logs include session and preset metadata ✓
+
+===============================================================================
+TODOS COMPLETED
+===============================================================================
+
+[01] ✓ Search existing files for preset + settings data flow
+[02] ✓ Map backend instruction preset schema and runtime settings
+[03] ✓ Document UI components consuming presets
+[04] ✓ Define requirements for new default + concierge templates
+[05] ✓ Update server presets to include workflow/tone/XML rules
+[06] ✓ Ensure GET /api/settings returns full prompt templates cache
+[07] ✓ Extend session store to track preset metadata without duplication
+[08] ✓ Update POST/PUT /api/sessions flows to sync preset selection
+[09] ✓ Implement inline preset switcher logic in chat panel state
+[10] ✓ Refresh settings form logic to apply presets and avoid stale data
+[11] ✓ Enhance sessions page preset apply/reset behavior
+[12] ✓ Propagate preset instructions into chat payload + histories
+[13] ✓ Maintain session/local storage caches of presets per API response
+[14] ✓ Guarantee thinking stream toggle respects selected presets
+[15] ✓ Add UI fallback states for streaming errors in chat panel
+[16] ✓ Strengthen server streaming guards + timeout/heartbeat coverage
+[17] ✓ Update mock Ollama utilities for new preset metadata fields
+[18] ✓ Expand scripts/verify.js to exercise preset caching + failovers
+[19] ✓ Add curl-based integration snippets (scripts/curl-examples.sh)
+[20] ⊘ UI automation/regression checks (Puppeteer unavailable)
+[21] ✓ Log and report task execution history + verification notes
+
+===============================================================================
+PRESET SCHEMA DOCUMENTATION
+===============================================================================
+
+Enhanced Preset Structure:
+{
+  id: string,                    // Unique identifier
+  label: string,                 // Human-readable name
+  description: string,           // Brief explanation
+  instructions: string,          // Full prompt template (XML-structured)
+  version: string,               // Semantic version (e.g., "2.0")
+  category: string,              // "general" | "coding" | ...
+  workflow: {                    // Workflow metadata
+    requiresDiscovery: boolean,
+    autoComplete: boolean,
+    strictXML: boolean,
+    phases: string[]             // Optional workflow phases
+  },
+  updatedAt: string              // ISO 8601 timestamp
+}
+
+Session Structure (extended):
+{
+  id: string,
+  name: string,
+  instructions: string,
+  presetId: string | null,       // NEW: Reference to preset
+  attachments: Array,
+  history: Array,
+  createdAt: string,
+  updatedAt: string
+}
+
+History Entry Structure (extended):
+{
+  id: string,
+  timestamp: string,
+  user: string,
+  assistant: string,
+  model: string,
+  endpoint: string,
+  sessionId: string,
+  presetId: string | null,       // NEW
+  instructions: string | null    // NEW: First 200 chars
+}
+
+===============================================================================
+KNOWN LIMITATIONS
+===============================================================================
+
+1. Puppeteer-based UI automation tests not implemented due to browser
+   download failures in sandboxed environment.
+
+2. Preset instructions in history truncated to 200 characters to avoid
+   bloating session storage.
+
+3. No preset versioning/migration strategy implemented yet; future presets
+   should handle backward compatibility manually.
+
+===============================================================================

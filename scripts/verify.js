@@ -33,6 +33,8 @@ async function run() {
     await verifyNonStreaming(fetchImpl, serverPort);
     await verifyStreaming(fetchImpl, serverPort);
     await verifyChatStream(fetchImpl, serverPort);
+    await verifyPresetCaching(fetchImpl, serverPort);
+    await verifySessionPresetSync(fetchImpl, serverPort);
     console.log('[verify] All checks passed');
   } finally {
     await Promise.all([mock.close(), closeServer(listener)]);
@@ -200,6 +202,80 @@ async function verifyChatStream(fetchImpl, port) {
   }
 
   console.log('[verify] Streaming /api/chat/stream passed');
+}
+
+async function verifyPresetCaching(fetchImpl, port) {
+  const response = await fetchImpl(`http://127.0.0.1:${port}/api/settings`);
+
+  if (!response.ok) {
+    throw new Error(`/api/settings failed (${response.status})`);
+  }
+
+  const data = await response.json();
+  if (!data.presets || !Array.isArray(data.presets)) {
+    throw new Error('/api/settings did not return presets array');
+  }
+
+  const hasDefaultAssistant = data.presets.find((p) => p.id === 'default-assistant');
+  const hasAiCoder = data.presets.find((p) => p.id === 'ai-coder-prompt');
+
+  if (!hasDefaultAssistant || !hasAiCoder) {
+    throw new Error('Expected presets not found in /api/settings response');
+  }
+
+  // Verify preset metadata fields
+  for (const preset of data.presets) {
+    if (!preset.id || !preset.label || !preset.description || !preset.instructions) {
+      throw new Error('Preset missing required fields: id, label, description, or instructions');
+    }
+    if (!preset.version || !preset.category || !preset.workflow) {
+      throw new Error('Preset missing metadata fields: version, category, or workflow');
+    }
+  }
+
+  console.log('[verify] Preset caching via /api/settings passed');
+}
+
+async function verifySessionPresetSync(fetchImpl, port) {
+  // Create a session with a preset
+  const createResponse = await fetchImpl(`http://127.0.0.1:${port}/api/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: 'Test Preset Session',
+      presetId: 'default-assistant',
+      instructions: 'Test instructions'
+    })
+  });
+
+  if (!createResponse.ok) {
+    throw new Error(`Session creation failed (${createResponse.status})`);
+  }
+
+  const createData = await createResponse.json();
+  if (!createData.session || !createData.session.id) {
+    throw new Error('Session creation did not return session ID');
+  }
+
+  const sessionId = createData.session.id;
+
+  // Verify the session includes presetId
+  const getResponse = await fetchImpl(`http://127.0.0.1:${port}/api/sessions/${sessionId}`);
+  if (!getResponse.ok) {
+    throw new Error(`Session GET failed (${getResponse.status})`);
+  }
+
+  const getData = await getResponse.json();
+  if (!getData.session || getData.session.presetId !== 'default-assistant') {
+    throw new Error('Session did not preserve presetId');
+  }
+
+  // Clean up
+  await fetchImpl(`http://127.0.0.1:${port}/api/sessions/${sessionId}`, {
+    method: 'DELETE'
+  });
+
+  console.log('[verify] Session preset sync passed');
 }
 
 function closeServer(listener) {
