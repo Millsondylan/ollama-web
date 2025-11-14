@@ -270,6 +270,101 @@ KNOWN LIMITATIONS
 ===============================================================================
 
 ===============================================================================
+CRITICAL FIXES: UI IMPROVEMENTS, THINKING MODE, AND MULTI-CHAT SUPPORT
+===============================================================================
+Date: 2025-01-14 (Post-ChatGPT UI Implementation)
+Status: COMPLETED
+
+OVERVIEW:
+---------
+Fixed critical issues with thinking mode display, preset visibility, and enabled
+simultaneous message sending across multiple chats. Enhanced AI coder preset to
+emphasize research-first workflow.
+
+FIXES IMPLEMENTED:
+------------------
+
+1. AI CODER PRESET ENHANCEMENT (server.js)
+   ✓ Updated preset to emphasize RESEARCH → DISCOVERY → IMPLEMENTATION workflow
+   ✓ Added dedicated RESEARCH phase (5-10 TODO items) before implementation
+   ✓ Instructs coder to search for best practices, patterns, and examples first
+   ✓ Expanded example to show proper research-driven development
+   ✓ Updated version from 2.1 → 2.2
+   ✓ Updated description to clarify research-first approach
+
+   Example Output Structure:
+   - RESEARCH (do this first): Search for best practices, patterns, examples
+   - DISCOVERY (understand current state): Map existing code and structure
+   - IMPLEMENTATION (build the feature): Specific coding tasks
+   - VERIFICATION (ensure it works): Testing and validation
+
+2. THINKING MODE DISPLAY FIX (app.js)
+   ✓ Changed thinking content to start EXPANDED (not collapsed)
+   ✓ Added "expanded" class to toggle button by default
+   ✓ Made live thinking visible immediately when streaming starts
+   ✓ Added real-time word count in label: "Thinking... (X words)"
+   ✓ Auto-scroll to keep new thinking content in view
+   ✓ Fixed issue where thinking was never visible during streaming
+
+   Before: Thinking content collapsed, user never saw live reasoning
+   After: Thinking content expanded by default, live word count updates
+
+3. PRESET INDICATOR IN CHAT HEADER (index.html, styles.css, app.js)
+   ✓ Added visual preset indicator below chat title
+   ✓ Shows current preset name with color-coded dot
+   ✓ Blue dot: Default assistant
+   ✓ Green dot: AI coder preset
+   ✓ Amber dot: Custom instructions
+   ✓ Updates automatically when switching sessions
+   ✓ Makes it crystal clear which mode is active
+
+   CSS Classes:
+   - .chat-title-container: Flex column for title and indicator
+   - .preset-indicator: Badge showing active preset
+   - .preset-indicator::before: Color-coded status dot
+
+   Functions:
+   - updatePresetIndicator(): Updates indicator based on active session
+   - Called whenever session changes or loads
+
+4. SIMULTANEOUS MULTI-CHAT SUPPORT (app.js)
+   ✓ Replaced global isSending flag with per-session tracking
+   ✓ Changed state.isSending to state.sessionSendingStates{}
+   ✓ Each session tracks its own sending state independently
+   ✓ Users can now send messages in different chats simultaneously
+   ✓ setThinking() now takes sessionId parameter
+   ✓ Updated cloud sync to check if ANY session is sending
+
+   Before: Global lock prevented all chats from sending simultaneously
+   After: Each chat has independent sending state
+
+FILES MODIFIED:
+---------------
+✓ server.js: Enhanced AI coder preset (lines 103-187, version 2.2)
+✓ public/index.html: Added preset indicator to chat header
+✓ public/styles.css: Added preset indicator styling
+✓ public/app.js: Fixed thinking display, added preset indicator, per-session sending
+
+TESTING RESULTS:
+----------------
+✓ npm run verify: All tests passed
+✓ Syntax check: No errors
+✓ Thinking mode: Now visible and updates live
+✓ Preset indicator: Shows correct mode with proper colors
+✓ Multi-chat: Can send messages in different sessions simultaneously
+
+USER EXPERIENCE IMPROVEMENTS:
+------------------------------
+✓ Live thinking is now actually visible (was completely broken before)
+✓ Clear visual indicator shows which preset/mode is active
+✓ Can work with multiple chats at once without blocking
+✓ AI coder preset now guides proper research-first development
+✓ No more confusion about which mode the chat is in
+✓ Professional UI with clear status indicators
+
+===============================================================================
+
+===============================================================================
 CHATGPT-STYLE UI UPGRADE
 ===============================================================================
 Date: 2025-01-14 (Post-Instruction Preset Upgrade)

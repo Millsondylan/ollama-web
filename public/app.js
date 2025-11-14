@@ -44,7 +44,7 @@ const state = {
   settings: null,
   baseUrl: FALLBACK_BASE_URL,
   customPages: loadCustomPages(),
-  isSending: false,
+  sessionSendingStates: {}, // Track sending state per session
   sessions: [],
   activeSessionId: loadActiveSessionPreference(),
   historySessionId: null,
@@ -604,6 +604,7 @@ function attachChatHandlers() {
   renderSessionSelector();
   renderModelSelector();
   updateSessionInstructionsPreview();
+  updatePresetIndicator();
   updateThinkingStatus();
   setupChatInstructionPresetControl();
   renderChatSessionsList();
@@ -698,23 +699,26 @@ function attachChatHandlers() {
     });
   }
 
-  function setThinking(active) {
+  function setThinking(active, sessionId = state.activeSessionId) {
     const spinner = document.getElementById('thinking-indicator');
     if (!spinner) return;
     spinner.classList.toggle('active', active);
     sendBtn.disabled = active;
-    state.isSending = active;
+    state.sessionSendingStates[sessionId] = active;
   }
 
   async function sendMessage() {
     const message = input.value.trim();
-    if (!message || state.isSending) {
+    const currentSessionId = state.activeSessionId;
+    const isSessionSending = state.sessionSendingStates[currentSessionId];
+
+    if (!message || isSessionSending) {
       return;
     }
 
     errorEl.textContent = '';
     input.value = '';
-    setThinking(true);
+    setThinking(true, currentSessionId);
     const liveUser = appendLiveUserMessage(message);
     const liveThinking = appendThinkingMessage();
     const effectiveModel = resolveModelForRequest();
@@ -803,7 +807,7 @@ function attachChatHandlers() {
         elements.activeModel.textContent = 'model: —';
       }
     } finally {
-      setThinking(false);
+      setThinking(false, currentSessionId);
     }
   }
 
@@ -1045,6 +1049,32 @@ function updateSessionInstructionsPreview() {
   previewEl.textContent = `${previewText} • ${attachmentsCount} attachment${attachmentsCount === 1 ? '' : 's'}`;
 }
 
+function updatePresetIndicator() {
+  const indicator = document.getElementById('preset-indicator');
+  if (!indicator) return;
+
+  const sessionsArray = Array.isArray(state.sessions) ? state.sessions : [];
+  const session = sessionsArray.find((item) => item.id === state.activeSessionId);
+
+  if (!session || !session.presetId) {
+    indicator.textContent = 'Custom';
+    indicator.className = 'preset-indicator custom';
+    return;
+  }
+
+  const preset = state.instructionPresets.find(p => p.id === session.presetId);
+  if (preset) {
+    indicator.textContent = preset.label;
+    indicator.className = 'preset-indicator';
+    if (preset.id === 'ai-coder-prompt') {
+      indicator.classList.add('ai-coder');
+    }
+  } else {
+    indicator.textContent = 'Custom';
+    indicator.className = 'preset-indicator custom';
+  }
+}
+
 function updateThinkingStatus(effectiveModel = resolveModelForRequest()) {
   const status = document.getElementById('thinking-status');
   if (!status) return;
@@ -1136,6 +1166,7 @@ function renderChatSessionsList() {
       renderChatMessages();
       renderChatSessionsList();
       updateSessionInstructionsPreview();
+      updatePresetIndicator();
 
       // Update chat title
       const chatTitle = document.getElementById('chat-title');
@@ -1176,6 +1207,7 @@ async function createNewChat() {
       renderChatMessages();
       renderChatSessionsList();
       updateSessionInstructionsPreview();
+      updatePresetIndicator();
 
       // Update chat title
       const chatTitle = document.getElementById('chat-title');
@@ -1277,7 +1309,7 @@ function appendThinkingMessage() {
       <span>${new Date().toLocaleTimeString()}</span>
     </header>
     <div class="thinking-section">
-      <button class="thinking-toggle-btn" aria-label="Toggle thinking">
+      <button class="thinking-toggle-btn expanded" aria-label="Toggle thinking">
         <svg class="thinking-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
         </svg>
@@ -1286,7 +1318,7 @@ function appendThinkingMessage() {
           <path d="M6 9l6 6 6-6"/>
         </svg>
       </button>
-      <div class="thinking-content collapsed">
+      <div class="thinking-content">
         <p><span class="assistant-live-text"></span></p>
       </div>
     </div>
@@ -1312,9 +1344,22 @@ function updateThinkingEntry(entry, text) {
   if (stream) {
     stream.textContent = text || '';
   }
+
+  // Auto-scroll to show new thinking content
+  const container = document.getElementById('chat-history');
+  if (container) {
+    container.scrollTop = container.scrollHeight;
+  }
+
   const label = entry.querySelector('.thinking-label');
-  if (label && text && text.length > 0) {
-    label.textContent = 'Thinking complete';
+  if (label) {
+    if (text && text.length > 0) {
+      // Update label to show active thinking
+      const wordCount = text.split(/\s+/).filter(w => w.length > 0).length;
+      label.textContent = `Thinking... (${wordCount} words)`;
+    } else {
+      label.textContent = 'Thinking...';
+    }
   }
 }
 
@@ -2203,7 +2248,9 @@ function setupAutoSync() {
 
   // Periodic sync (every 5 minutes)
   setInterval(async () => {
-    if (!state.isSending) { // Don't sync during active operations
+    // Don't sync if any session is currently sending
+    const anySending = Object.values(state.sessionSendingStates).some(s => s);
+    if (!anySending) {
       await syncDataToCloud();
     }
   }, 5 * 60 * 1000); // 5 minutes
