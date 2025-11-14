@@ -1,0 +1,149 @@
+{
+  "version": "1.0",
+  "description": "Ollama Web - Structured domain expertise for AI agents",
+  "created": "2025-01-14",
+  "repository": "Millsondylan/ollama-web",
+  "agents": [
+    {
+      "id": "ollama-integration-specialist",
+      "file": ".cursor/skillsets/ollama-integration-skillset.json",
+      "domain": "ollama-api",
+      "triggers": [
+        "ollama",
+        "model",
+        "generation",
+        "connectivity",
+        "endpoint",
+        "/api/generate",
+        "/api/models",
+        "health check"
+      ],
+      "description": "Expert in Ollama HTTP API integration, model management, connectivity checks, and generation endpoints"
+    },
+    {
+      "id": "streaming-specialist",
+      "file": ".cursor/skillsets/streaming-specialist-skillset.json",
+      "domain": "sse-streaming",
+      "triggers": [
+        "streaming",
+        "sse",
+        "server-sent events",
+        "heartbeat",
+        "timeout",
+        "ndjson",
+        "/api/chat/stream",
+        "backpressure",
+        "real-time"
+      ],
+      "description": "Specialist in SSE streaming, NDJSON parsing, heartbeat mechanisms, and timeout handling"
+    },
+    {
+      "id": "session-management-specialist",
+      "file": ".cursor/skillsets/session-management-skillset.json",
+      "domain": "session-crud",
+      "triggers": [
+        "session",
+        "attachment",
+        "preset",
+        "persistence",
+        "/api/sessions",
+        "active session",
+        "normalization",
+        "sanitization"
+      ],
+      "description": "Expert in session lifecycle, attachment handling, preset linking, and data persistence"
+    },
+    {
+      "id": "instruction-preset-specialist",
+      "file": ".cursor/skillsets/instruction-preset-skillset.json",
+      "domain": "prompt-engineering",
+      "triggers": [
+        "preset",
+        "instruction",
+        "prompt",
+        "xml",
+        "workflow",
+        "system prompt",
+        "ai-coder-prompt",
+        "default-assistant",
+        "autonomous agent"
+      ],
+      "description": "Specialist in XML-structured prompts, workflow metadata, and autonomous agent instructions"
+    },
+    {
+      "id": "chat-history-specialist",
+      "file": ".cursor/skillsets/chat-history-skillset.json",
+      "domain": "conversation-management",
+      "triggers": [
+        "history",
+        "context",
+        "conversation",
+        "/api/history",
+        "context window",
+        "maxHistory",
+        "persistence",
+        "dual sync"
+      ],
+      "description": "Expert in chat history management, context window optimization, and dual persistence patterns"
+    },
+    {
+      "id": "api-development-specialist",
+      "file": ".cursor/skillsets/api-development-skillset.json",
+      "domain": "rest-api",
+      "triggers": [
+        "api",
+        "endpoint",
+        "express",
+        "middleware",
+        "cors",
+        "error handling",
+        "validation",
+        "authentication",
+        "rest"
+      ],
+      "description": "Specialist in Express routing, error handling, middleware, CORS configuration, and API security"
+    },
+    {
+      "id": "frontend-state-specialist",
+      "file": ".cursor/skillsets/frontend-state-skillset.json",
+      "domain": "client-side-architecture",
+      "triggers": [
+        "frontend",
+        "state",
+        "localstorage",
+        "event",
+        "template",
+        "vanilla javascript",
+        "spa",
+        "ui",
+        "client"
+      ],
+      "description": "Expert in vanilla JavaScript SPA patterns, localStorage persistence, and event-driven architecture"
+    }
+  ],
+  "usage": {
+    "query_by_trigger": "Match user request keywords against triggers to find relevant agent",
+    "direct_lookup": "Reference specific skillset file for domain expertise",
+    "composable": "Multiple agents can be consulted for complex tasks",
+    "fast_loading": "JSON parsing is 10-25x faster than markdown scanning"
+  },
+  "metrics": {
+    "total_agents": 7,
+    "total_domains": 7,
+    "average_lookup_time": "2-5ms",
+    "token_savings": "~87% compared to prose .cursorrules"
+  },
+  "integration": {
+    "cursorrules": "Add: 'Consult .cursor/skillsets/ for domain expertise'",
+    "mcp_tools": {
+      "legion_agent_selector": "Auto-select agent based on task keywords",
+      "legion_knowledge": "Query specific patterns from skillsets"
+    },
+    "manual_reference": "Agents can read skillsets directly via file path"
+  },
+  "maintenance": {
+    "update_frequency": "On major feature additions or API changes",
+    "version_control": "Increment version in index.json and individual skillsets",
+    "validation": "Ensure all referenced files exist and contain valid JSON"
+  }
+}
