@@ -103,10 +103,14 @@ async function bootstrapSettings() {
     persistClientSettings();
     notifySettingsSubscribers();
     elements.status.textContent = 'online';
+    elements.status.classList.remove('badge-offline');
     elements.status.classList.add('badge-online');
     elements.activeModel.textContent = `model: ${state.settings.model}`;
   } catch (error) {
+    console.error('Error in bootstrapSettings:', error);
     elements.status.textContent = 'offline';
+    elements.status.classList.remove('badge-online');
+    elements.status.classList.add('badge-offline');
     elements.activeModel.textContent = 'model: —';
     restoreClientSettings();
     state.baseUrl = normalizeBaseUrl(state.settings?.backendBaseUrl);
@@ -142,6 +146,12 @@ async function loadSessions() {
     if (!state.activeSessionId) {
       state.activeSessionId = 'default';
     }
+    // Update connection status to offline if there's a connection error
+    if (error.message && (error.message.includes('connect') || error.message.includes('fetch') || error.message.includes('offline'))) {
+      elements.status.textContent = 'offline';
+      elements.status.classList.remove('badge-online');
+      elements.status.classList.add('badge-offline');
+    }
   }
 }
 
@@ -154,8 +164,14 @@ async function loadAvailableModels() {
       updateThinkingStatus();
     }
   } catch (error) {
-    console.warn('Failed to load available models', error);
+    console.error('Failed to load available models', error);
     state.availableModels = [];
+    // Update connection status to offline if there's a connection error
+    if (error.message && (error.message.includes('connect') || error.message.includes('fetch') || error.message.includes('offline'))) {
+      elements.status.textContent = 'offline';
+      elements.status.classList.remove('badge-online');
+      elements.status.classList.add('badge-offline');
+    }
   }
 }
 
@@ -172,6 +188,12 @@ async function loadApiKeys() {
     }
   } catch (error) {
     console.error('Failed to load API keys', error);
+    // Update connection status to offline if there's a connection error
+    if (error.message && (error.message.includes('connect') || error.message.includes('fetch') || error.message.includes('offline'))) {
+      elements.status.textContent = 'offline';
+      elements.status.classList.remove('badge-online');
+      elements.status.classList.add('badge-offline');
+    }
   }
 }
 
@@ -194,6 +216,12 @@ async function loadServerHistory(sessionId = state.activeSessionId) {
   } catch (error) {
     console.error('Failed to load server history', error);
     state.sessionHistories[sessionId] = state.localHistory[sessionId] || [];
+    // Update connection status to offline if there's a connection error
+    if (error.message && (error.message.includes('connect') || error.message.includes('fetch') || error.message.includes('offline'))) {
+      elements.status.textContent = 'offline';
+      elements.status.classList.remove('badge-online');
+      elements.status.classList.add('badge-offline');
+    }
   }
 }
 
@@ -635,17 +663,30 @@ function attachChatHandlers() {
       renderChatMessages();
       renderHistoryPage();
     } catch (error) {
-      errorEl.textContent = error.message || 'Failed to send message';
+      console.error('Error sending message:', error);
+      const errorMessage = error.message || 'Failed to send message';
+      errorEl.textContent = errorMessage;
+
+      // Update UI elements to reflect the error
       if (liveThinking) {
         liveThinking.classList.add('error-entry');
         const thinkingText = liveThinking.querySelector('.thinking-text');
         if (thinkingText) {
-          thinkingText.textContent = error.message || 'Something went wrong';
+          thinkingText.textContent = errorMessage;
         }
         setTimeout(() => clearLiveEntries(), 2000);
       }
       if (liveUser) {
         setTimeout(() => liveUser.remove(), 2000);
+      }
+
+      // Update connection status if this is a connection error
+      if (errorMessage.includes('connect') || errorMessage.includes('fetch') ||
+          errorMessage.includes('offline') || errorMessage.includes('Cannot connect')) {
+        elements.status.textContent = 'offline';
+        elements.status.classList.remove('badge-online');
+        elements.status.classList.add('badge-offline');
+        elements.activeModel.textContent = 'model: —';
       }
     } finally {
       if (!state.thinkingEnabled) {
@@ -1062,6 +1103,7 @@ function attachSettingsHandlers() {
       const text = await response.text();
       proxyOutput.textContent = text || '(empty response)';
     } catch (error) {
+      console.error('Proxy request failed:', error);
       proxyOutput.textContent = error.message || 'Proxy failed';
     }
   });
@@ -1248,14 +1290,37 @@ async function fetchJson(path, options = {}) {
   };
 
   const target = buildUrl(path);
-  const response = await fetch(target, init);
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || response.statusText);
+  try {
+    const response = await fetch(target, init);
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || response.statusText);
+    }
+
+    return response.json();
+  } catch (error) {
+    // Update the connection status to offline when there's a connection error
+    if (elements.status) {
+      elements.status.textContent = 'offline';
+      elements.status.classList.remove('badge-online');
+      elements.status.classList.add('badge-offline');
+    }
+
+    // Update model status to show it's unavailable
+    if (elements.activeModel) {
+      elements.activeModel.textContent = 'model: —';
+    }
+
+    // Check if it's a network error
+    if (error.name === 'TypeError' || error.message.includes('Failed to fetch') ||
+        error.message.includes('NetworkError') || error.message.includes('ECONNREFUSED')) {
+      throw new Error('Cannot connect to the backend server. Is the server running?');
+    }
+
+    throw error;
   }
-
-  return response.json();
 }
 
 function buildUrl(path) {
@@ -1407,6 +1472,17 @@ async function syncDataToCloud() {
     }
   } catch (error) {
     console.error('Error syncing data to cloud:', error);
+    // Update connection status to offline if there's a connection error
+    if (error.message && (error.message.includes('connect') || error.message.includes('fetch') || error.message.includes('offline'))) {
+      if (elements.status) {
+        elements.status.textContent = 'offline';
+        elements.status.classList.remove('badge-online');
+        elements.status.classList.add('badge-offline');
+      }
+      if (elements.activeModel) {
+        elements.activeModel.textContent = 'model: —';
+      }
+    }
     return false;
   }
 }
@@ -1443,6 +1519,17 @@ async function syncDataFromCloud() {
     }
   } catch (error) {
     console.error('Error syncing data from cloud:', error);
+    // Update connection status to offline if there's a connection error
+    if (error.message && (error.message.includes('connect') || error.message.includes('fetch') || error.message.includes('offline'))) {
+      if (elements.status) {
+        elements.status.textContent = 'offline';
+        elements.status.classList.remove('badge-online');
+        elements.status.classList.add('badge-offline');
+      }
+      if (elements.activeModel) {
+        elements.activeModel.textContent = 'model: —';
+      }
+    }
     return false;
   }
 }
