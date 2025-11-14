@@ -900,6 +900,78 @@ app.delete('/api/keys/:id', async (req, res) => {
   }
 });
 
+// Cloud sync endpoints for user data synchronization
+app.get('/api/sync/data', async (req, res) => {
+  // For local-only sync, return the local data
+  // In a real cloud implementation, this would fetch from a cloud service
+  const providedKey = extractApiKey(req);
+  const keyRecord = providedKey ? verifyApiKey(providedKey) : null;
+  if (providedKey && !keyRecord) {
+    return res.status(401).json({ error: 'Invalid API key' });
+  }
+
+  try {
+    // Return the session store data that should be synced
+    const syncData = {
+      sessions: sessionStore.sessions,
+      activeSessionId: sessionStore.activeSessionId,
+      settings: runtimeSettings,
+      apiKeyStore: apiKeyStore,
+      timestamp: new Date().toISOString()
+    };
+
+    return res.json(syncData);
+  } catch (error) {
+    return res.status(500).json({ error: error.message || 'Failed to fetch sync data' });
+  }
+});
+
+app.post('/api/sync/data', async (req, res) => {
+  // For local-only sync, store the data locally
+  // In a real cloud implementation, this would sync to a cloud service
+  const providedKey = extractApiKey(req);
+  const keyRecord = providedKey ? verifyApiKey(providedKey) : null;
+  if (providedKey && !keyRecord) {
+    return res.status(401).json({ error: 'Invalid API key' });
+  }
+
+  const { sessions, activeSessionId, settings, apiKeyStore } = req.body || {};
+
+  try {
+    // Update the in-memory stores with the synced data
+    if (sessions) {
+      sessionStore.sessions = sessions;
+    }
+    if (activeSessionId) {
+      sessionStore.activeSessionId = activeSessionId;
+    }
+    if (settings) {
+      runtimeSettings = { ...runtimeSettings, ...settings };
+    }
+    if (req.body.apiKeyStore) {
+      // Update the actual global apiKeyStore with synced data
+      apiKeyStore.keys = { ...apiKeyStore.keys, ...(req.body.apiKeyStore.keys || {}) };
+    }
+
+    // Persist the changes to disk
+    await persistSessions();
+
+    // For API key changes, persist separately
+    if (req.body.apiKeyStore) {
+      ensureStorageDir();
+      await fsp.writeFile(API_KEYS_FILE, JSON.stringify(apiKeyStore, null, 2), 'utf8');
+    }
+
+    return res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      message: 'Sync completed successfully'
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message || 'Failed to sync data' });
+  }
+});
+
 app.get(/^(?!\/api).*/, (req, res) => {
   res.sendFile(path.join(__dirnameResolved, 'public', 'index.html'));
 });

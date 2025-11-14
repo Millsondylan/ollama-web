@@ -69,6 +69,9 @@ async function init() {
   await loadApiKeys();
   renderPage(state.currentPage);
   hydrateLocalHistory();
+
+  // Setup cloud synchronization
+  setupAutoSync();
 }
 
 function getPageRegistry() {
@@ -1321,5 +1324,93 @@ function loadThinkingPreference() {
   } catch (_) {
     return false;
   }
+}
+
+// Cloud synchronization functions
+async function syncDataToCloud() {
+  try {
+    // Prepare data for sync
+    const syncData = {
+      sessions: state.sessions,
+      activeSessionId: state.activeSessionId,
+      settings: state.settings,
+      localHistory: state.localHistory,
+      customPages: state.customPages,
+      thinkingEnabled: state.thinkingEnabled
+    };
+
+    const response = await fetchJson('/api/sync/data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(syncData)
+    });
+
+    if (response.success) {
+      console.log('Data synced to cloud successfully:', response.timestamp);
+      return true;
+    } else {
+      console.error('Failed to sync data to cloud:', response);
+      return false;
+    }
+  } catch (error) {
+    console.error('Error syncing data to cloud:', error);
+    return false;
+  }
+}
+
+async function syncDataFromCloud() {
+  try {
+    const response = await fetchJson('/api/sync/data');
+
+    if (response && response.sessions !== undefined) {
+      // Update application state with synced data
+      state.sessions = response.sessions || state.sessions;
+      state.activeSessionId = response.activeSessionId || state.activeSessionId;
+      state.settings = { ...state.settings, ...response.settings };
+      state.localHistory = response.localHistory || state.localHistory;
+      // Note: We might want to be more careful about merging history data
+
+      // Update UI to reflect synced changes
+      renderNav();
+      renderSessionSelector();
+      renderChatMessages();
+      renderHistoryPage();
+      applyTheme(state.settings.theme);
+
+      // Update the active model display
+      if (elements.activeModel) {
+        elements.activeModel.textContent = `model: ${state.settings.model}`;
+      }
+
+      console.log('Data synced from cloud successfully:', response.timestamp);
+      return true;
+    } else {
+      console.error('Unexpected response format when syncing from cloud:', response);
+      return false;
+    }
+  } catch (error) {
+    console.error('Error syncing data from cloud:', error);
+    return false;
+  }
+}
+
+// Auto-sync functionality
+function setupAutoSync() {
+  // Sync when the page is about to unload
+  window.addEventListener('beforeunload', async () => {
+    await syncDataToCloud();
+  });
+
+  // Periodic sync (every 5 minutes)
+  setInterval(async () => {
+    if (!state.isSending) { // Don't sync during active operations
+      await syncDataToCloud();
+    }
+  }, 5 * 60 * 1000); // 5 minutes
+
+  // Initial sync on page load
+  setTimeout(async () => {
+    await syncDataFromCloud(); // Get latest from cloud on startup
+  }, 2000); // Wait a bit for initial load
 }
 
