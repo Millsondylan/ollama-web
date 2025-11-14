@@ -593,6 +593,12 @@ function attachChatHandlers() {
   const instructionsPreview = document.getElementById('session-instructions-preview');
   const modelSelector = document.getElementById('model-selector');
   const thinkingToggle = document.getElementById('thinking-toggle');
+  const newChatBtn = document.getElementById('new-chat-btn');
+  const sidebarToggle = document.getElementById('sidebar-toggle');
+  const sidebarToggleMobile = document.getElementById('sidebar-toggle-mobile');
+  const chatSidebar = document.getElementById('chat-sidebar');
+  const chatMenuBtn = document.getElementById('chat-menu-btn');
+  const chatMenu = document.getElementById('chat-menu');
 
   renderChatMessages();
   renderSessionSelector();
@@ -600,6 +606,7 @@ function attachChatHandlers() {
   updateSessionInstructionsPreview();
   updateThinkingStatus();
   setupChatInstructionPresetControl();
+  renderChatSessionsList();
 
   if (modelSelector) {
     modelSelector.addEventListener('change', (event) => {
@@ -632,11 +639,6 @@ function attachChatHandlers() {
     }
   });
 
-  refreshBtn.addEventListener('click', async () => {
-    await loadServerHistory(state.activeSessionId);
-    renderChatMessages();
-  });
-
   clearBtn.addEventListener('click', async () => {
     await fetchJson(`/api/history?sessionId=${encodeURIComponent(state.activeSessionId)}`, {
       method: 'DELETE'
@@ -647,7 +649,54 @@ function attachChatHandlers() {
     persistLocalHistory();
     renderChatMessages();
     renderHistoryPage();
+    if (chatMenu) chatMenu.style.display = 'none';
   });
+
+  // New chat button
+  if (newChatBtn) {
+    newChatBtn.addEventListener('click', async () => {
+      await createNewChat();
+    });
+  }
+
+  // Sidebar toggle
+  if (sidebarToggle) {
+    sidebarToggle.addEventListener('click', () => {
+      if (chatSidebar) {
+        chatSidebar.classList.toggle('collapsed');
+      }
+    });
+  }
+
+  if (sidebarToggleMobile) {
+    sidebarToggleMobile.addEventListener('click', () => {
+      if (chatSidebar) {
+        chatSidebar.classList.toggle('open');
+      }
+    });
+  }
+
+  // Chat menu toggle
+  if (chatMenuBtn && chatMenu) {
+    chatMenuBtn.addEventListener('click', () => {
+      chatMenu.style.display = chatMenu.style.display === 'none' ? 'block' : 'none';
+    });
+
+    // Close menu when clicking outside
+    document.addEventListener('click', (e) => {
+      if (chatMenu && chatMenuBtn && !chatMenu.contains(e.target) && !chatMenuBtn.contains(e.target)) {
+        chatMenu.style.display = 'none';
+      }
+    });
+  }
+
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', async () => {
+      await loadServerHistory(state.activeSessionId);
+      renderChatMessages();
+      if (chatMenu) chatMenu.style.display = 'none';
+    });
+  }
 
   function setThinking(active) {
     const spinner = document.getElementById('thinking-indicator');
@@ -1044,6 +1093,113 @@ async function ensureThinkingPrerequisites() {
   return true;
 }
 
+function renderChatSessionsList() {
+  const container = document.getElementById('chat-sessions-list');
+  if (!container) return;
+
+  container.innerHTML = '';
+
+  if (!state.sessions || state.sessions.length === 0) {
+    container.innerHTML = '<p class="muted small-text" style="padding: 1rem; text-align: center;">No chats yet</p>';
+    return;
+  }
+
+  state.sessions.forEach((session) => {
+    const btn = document.createElement('button');
+    btn.className = 'session-item';
+    if (session.id === state.activeSessionId) {
+      btn.classList.add('active');
+    }
+
+    // Get session title (use first message or session name)
+    const sessionHistory = state.sessionHistories[session.id] || [];
+    const firstMessage = sessionHistory.length > 0 ? sessionHistory[0].user : null;
+    const title = firstMessage
+      ? (firstMessage.length > 40 ? firstMessage.substring(0, 40) + '...' : firstMessage)
+      : (session.name || 'New Chat');
+
+    // Get preview from latest message
+    const lastMessage = sessionHistory.length > 0 ? sessionHistory[sessionHistory.length - 1] : null;
+    const preview = lastMessage
+      ? (lastMessage.assistant || lastMessage.user || '').substring(0, 60)
+      : 'No messages yet';
+
+    btn.innerHTML = `
+      <div class="session-item-title">${escapeHtml(title)}</div>
+      <div class="session-item-preview">${escapeHtml(preview)}</div>
+    `;
+
+    btn.addEventListener('click', async () => {
+      state.activeSessionId = session.id;
+      persistActiveSession();
+      await loadServerHistory(session.id);
+      renderChatMessages();
+      renderChatSessionsList();
+      updateSessionInstructionsPreview();
+
+      // Update chat title
+      const chatTitle = document.getElementById('chat-title');
+      if (chatTitle) {
+        chatTitle.textContent = title.length > 30 ? title.substring(0, 30) + '...' : title;
+      }
+
+      // Close mobile sidebar
+      const chatSidebar = document.getElementById('chat-sidebar');
+      if (chatSidebar && window.innerWidth <= 768) {
+        chatSidebar.classList.remove('open');
+      }
+    });
+
+    container.appendChild(btn);
+  });
+}
+
+async function createNewChat() {
+  try {
+    const newSession = {
+      name: 'New Chat',
+      instructions: state.settings?.systemInstructions || '',
+      presetId: 'default-assistant'
+    };
+
+    const response = await fetchJson('/api/sessions', {
+      method: 'POST',
+      body: JSON.stringify(newSession)
+    });
+
+    if (response.session) {
+      await loadSessions();
+      state.activeSessionId = response.session.id;
+      persistActiveSession();
+      state.chat = [];
+      state.sessionHistories[response.session.id] = [];
+      renderChatMessages();
+      renderChatSessionsList();
+      updateSessionInstructionsPreview();
+
+      // Update chat title
+      const chatTitle = document.getElementById('chat-title');
+      if (chatTitle) {
+        chatTitle.textContent = 'New Chat';
+      }
+
+      // Focus on input
+      const input = document.getElementById('chat-input');
+      if (input) {
+        input.focus();
+      }
+
+      // Close mobile sidebar
+      const chatSidebar = document.getElementById('chat-sidebar');
+      if (chatSidebar && window.innerWidth <= 768) {
+        chatSidebar.classList.remove('open');
+      }
+    }
+  } catch (error) {
+    console.error('[ERROR] Failed to create new chat:', error);
+  }
+}
+
 function renderChatMessages() {
   const container = document.getElementById('chat-history');
   if (!container) return;
@@ -1120,8 +1276,31 @@ function appendThinkingMessage() {
       <strong>Assistant</strong>
       <span>${new Date().toLocaleTimeString()}</span>
     </header>
-    <p><strong>A:</strong> <span class="assistant-live-text"></span></p>
+    <div class="thinking-section">
+      <button class="thinking-toggle-btn" aria-label="Toggle thinking">
+        <svg class="thinking-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+        </svg>
+        <span class="thinking-label">Thinking...</span>
+        <svg class="chevron-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M6 9l6 6 6-6"/>
+        </svg>
+      </button>
+      <div class="thinking-content collapsed">
+        <p><span class="assistant-live-text"></span></p>
+      </div>
+    </div>
   `;
+
+  const toggleBtn = article.querySelector('.thinking-toggle-btn');
+  const content = article.querySelector('.thinking-content');
+  if (toggleBtn && content) {
+    toggleBtn.addEventListener('click', () => {
+      content.classList.toggle('collapsed');
+      toggleBtn.classList.toggle('expanded');
+    });
+  }
+
   container.appendChild(article);
   container.scrollTop = container.scrollHeight;
   return article;
@@ -1132,6 +1311,10 @@ function updateThinkingEntry(entry, text) {
   const stream = entry.querySelector('.assistant-live-text');
   if (stream) {
     stream.textContent = text || '';
+  }
+  const label = entry.querySelector('.thinking-label');
+  if (label && text && text.length > 0) {
+    label.textContent = 'Thinking complete';
   }
 }
 

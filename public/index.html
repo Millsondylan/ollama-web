@@ -29,57 +29,100 @@
     </main>
 
     <template id="chat-page">
-      <section class="panel">
-        <div class="panel-header panel-header-stacked">
-          <div class="panel-title">
-            <h2>Chat</h2>
-            <p id="session-instructions-preview" class="muted small-text"></p>
-            <p id="thinking-status" class="thinking-status small-text"></p>
+      <div class="chat-container">
+        <!-- Sidebar with chat history -->
+        <aside class="chat-sidebar" id="chat-sidebar">
+          <div class="sidebar-header">
+            <button id="new-chat-btn" class="new-chat-btn">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 5v14M5 12h14"/>
+              </svg>
+              New Chat
+            </button>
+            <button id="sidebar-toggle" class="sidebar-toggle" aria-label="Toggle sidebar">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 12h18M3 6h18M3 18h18"/>
+              </svg>
+            </button>
           </div>
-          <div class="panel-actions">
-            <label class="session-select">
-              <span>Session</span>
-              <select id="session-selector"></select>
-            </label>
-            <label class="model-select">
-              <span>Model</span>
-              <select id="model-selector"></select>
-            </label>
-            <label class="thinking-toggle">
-              <input type="checkbox" id="thinking-toggle" />
-              <span>Enable Thinking</span>
-            </label>
-            <button id="refresh-history" class="ghost-btn">Refresh</button>
-            <button id="clear-history" class="ghost-btn">Clear</button>
-            <div class="chat-preset-control">
-              <label>
-                <span>Instruction preset</span>
-                <select id="chat-instruction-preset-select">
-                  <option value="">Custom / manual</option>
-                </select>
+          <div class="sidebar-content">
+            <div id="chat-sessions-list" class="chat-sessions-list"></div>
+          </div>
+        </aside>
+
+        <!-- Main chat area -->
+        <main class="chat-main">
+          <div class="chat-header">
+            <div class="chat-header-left">
+              <button id="sidebar-toggle-mobile" class="sidebar-toggle-mobile" aria-label="Toggle sidebar">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M3 12h18M3 6h18M3 18h18"/>
+                </svg>
+              </button>
+              <h2 id="chat-title">Chat</h2>
+            </div>
+            <div class="chat-header-actions">
+              <label class="model-select">
+                <span>Model</span>
+                <select id="model-selector"></select>
               </label>
-              <button type="button" id="chat-instruction-preset-apply" class="ghost-btn">Apply</button>
+              <label class="thinking-toggle">
+                <input type="checkbox" id="thinking-toggle" />
+                <span>Thinking</span>
+              </label>
+              <button id="chat-menu-btn" class="icon-btn" aria-label="Chat options">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/>
+                </svg>
+              </button>
             </div>
           </div>
-          <p id="chat-instruction-preset-description" class="muted small-text preset-description"></p>
-        </div>
-        <div id="chat-history" class="chat-history"></div>
-        <div class="composer">
-          <textarea
-            id="chat-input"
-            rows="3"
-            placeholder="Ask anything..."
-            aria-label="Prompt"
-          ></textarea>
-          <div class="composer-actions">
-            <button id="send-btn">Send</button>
-            <div id="thinking-indicator" class="spinner" aria-hidden="true">
-              <span></span><span></span><span></span>
+
+          <!-- Dropdown menu for chat options -->
+          <div id="chat-menu" class="chat-menu" style="display: none;">
+            <button id="refresh-history" class="menu-item">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+              </svg>
+              Refresh History
+            </button>
+            <button id="clear-history" class="menu-item">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+              </svg>
+              Clear History
+            </button>
+            <div class="menu-divider"></div>
+            <div class="menu-section">
+              <label class="menu-label">Instruction Preset</label>
+              <select id="chat-instruction-preset-select" class="menu-select">
+                <option value="">Custom / manual</option>
+              </select>
+              <button type="button" id="chat-instruction-preset-apply" class="menu-btn">Apply Preset</button>
+              <p id="chat-instruction-preset-description" class="menu-description"></p>
             </div>
           </div>
-        </div>
-        <p id="chat-error" class="error-text" role="alert"></p>
-      </section>
+
+          <div id="chat-history" class="chat-history"></div>
+          <div class="composer">
+            <textarea
+              id="chat-input"
+              rows="3"
+              placeholder="Ask anything..."
+              aria-label="Prompt"
+            ></textarea>
+            <div class="composer-actions">
+              <button id="send-btn">Send</button>
+              <div id="thinking-indicator" class="spinner" aria-hidden="true">
+                <span></span><span></span><span></span>
+              </div>
+            </div>
+          </div>
+          <p id="chat-error" class="error-text" role="alert"></p>
+          <p id="thinking-status" class="thinking-status small-text"></p>
+          <p id="session-instructions-preview" class="muted small-text" style="display: none;"></p>
+        </main>
+      </div>
     </template>
 
     <template id="settings-page">
