@@ -391,12 +391,57 @@ async function pushHistory(sessionId, entry) {
 
 const ensureFetch = () => {
   if (typeof fetch !== 'undefined') {
-    return fetch;
+    // If fetch is available globally (e.g., in newer Node versions), wrap it with timeout
+    return async (url, options = {}) => {
+      // Extract timeout from options
+      const { timeout = 60000 } = options; // Default to 60 seconds
+      delete options.timeout; // Remove timeout from options as it's not a valid fetch option
+
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), timeout);
+
+      try {
+        const response = await fetch(url, {
+          ...options,
+          signal: controller.signal
+        });
+        clearTimeout(id);
+        return response;
+      } catch (error) {
+        clearTimeout(id);
+        if (error.name === 'AbortError') {
+          throw new Error('Request timeout');
+        }
+        throw error;
+      }
+    };
   }
 
-  return async (...args) => {
+  return async (url, options = {}) => {
     const { default: nodeFetch } = await import('node-fetch');
-    return nodeFetch(...args);
+    // Extract timeout from options for node-fetch
+    const { timeout = 60000 } = options; // Default to 60 seconds
+    delete options.timeout; // Remove timeout from options as it's not a valid fetch option
+
+    // Create AbortController for timeout
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeout);
+
+    try {
+      const response = await nodeFetch(url, {
+        ...options,
+        signal: controller.signal
+      });
+      clearTimeout(id);
+      return response;
+    } catch (error) {
+      clearTimeout(id);
+      if (error.name === 'AbortError') {
+        throw new Error('Request timeout');
+      }
+      throw error;
+    }
   };
 };
 
@@ -441,6 +486,13 @@ function runOllama({ prompt, model, apiEndpoint, timeoutMs = 120000 }) {
       ? { ...process.env, OLLAMA_HOST: apiEndpoint }
       : process.env;
 
+    // Check if ollama command is available
+    const whichResult = spawnSync('which', ['ollama']);
+    if (whichResult.status !== 0) {
+      reject(new Error('Ollama command not found. Please ensure Ollama is installed and in your PATH.'));
+      return;
+    }
+
     const child = spawn('ollama', ['run', model], {
       env,
       stdio: ['pipe', 'pipe', 'pipe']
@@ -451,7 +503,9 @@ function runOllama({ prompt, model, apiEndpoint, timeoutMs = 120000 }) {
 
     const handleError = (error) => {
       clearTimeout(timeoutId);
-      child.kill('SIGTERM');
+      if (child && !child.killed) {
+        child.kill('SIGTERM');
+      }
       reject(error);
     };
 
@@ -460,7 +514,8 @@ function runOllama({ prompt, model, apiEndpoint, timeoutMs = 120000 }) {
     }, timeoutMs);
 
     child.on('error', (err) => {
-      handleError(err);
+      console.error('Ollama process error:', err.message);
+      handleError(new Error(`Failed to communicate with Ollama: ${err.message}`));
     });
 
     child.on('close', (code) => {
@@ -469,13 +524,31 @@ function runOllama({ prompt, model, apiEndpoint, timeoutMs = 120000 }) {
       if (code === 0) {
         resolve(stdout.trim());
       } else {
-        const message = stderr || `Ollama exited with code ${code}`;
-        reject(new Error(message.trim()));
+        // Handle specific error codes
+        if (code === 127) { // Command not found
+          reject(new Error('Ollama command not found. Please ensure Ollama is installed and in your PATH.'));
+        } else {
+          const message = stderr || `Ollama exited with code ${code}`;
+          if (message.includes('connection refused') || message.includes('ECONNREFUSED')) {
+            reject(new Error('Cannot connect to Ollama service. Is the Ollama service running?'));
+          } else if (message.includes('not found') || message.includes('No Modelfile')) {
+            reject(new Error(`Model '${model}' not found. Please pull the model with 'ollama pull ${model}'`));
+          } else {
+            reject(new Error(message.trim()));
+          }
+        }
       }
     });
 
-    child.stdin.write(`${prompt}\n`);
-    child.stdin.end();
+    // Check if child process is running before sending input
+    setTimeout(() => {
+      if (child.killed) {
+        reject(new Error('Ollama process was terminated before input could be sent'));
+        return;
+      }
+      child.stdin.write(`${prompt}\n`);
+      child.stdin.end();
+    }, 10);
   });
 }
 
@@ -521,11 +594,53 @@ app.post('/api/chat', async (req, res) => {
   const startedAt = Date.now();
 
   try {
-    const responseText = await runOllama({
-      prompt,
-      model: modelToUse,
-      apiEndpoint: endpointToUse
+    const endpoint = withTrailingSlash(endpointToUse);
+
+    // Check if ollama endpoint is reachable before making the request
+    try {
+      const testResponse = await httpFetch(`${endpoint}api/tags`, {
+        method: 'GET',
+        timeout: 10000 // 10 second timeout for connectivity check
+      });
+
+      if (!testResponse.ok) {
+        throw new Error('Cannot connect to Ollama service. Is the Ollama service running?');
+      }
+    } catch (connectivityError) {
+      console.error('Ollama connectivity check failed:', connectivityError.message);
+      throw new Error('Cannot connect to Ollama service. Is the Ollama service running?');
+    }
+
+    const upstream = await httpFetch(`${endpoint}api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 120000, // 2 minute timeout for the actual generation
+      body: JSON.stringify({
+        model: modelToUse,
+        prompt,
+        stream: false  // Non-streaming request
+      })
     });
+
+    if (!upstream.ok) {
+      const statusMessage = upstream.status === 404
+        ? `Model '${modelToUse}' not found. Please pull the model with 'ollama pull ${modelToUse}'`
+        : `Failed to get response from Ollama (status: ${upstream.status})`;
+      throw new Error(statusMessage);
+    }
+
+    const result = await upstream.json();
+
+    // Handle the response from the API
+    if (!result.response) {
+      if (result.error) {
+        throw new Error(result.error);
+      } else {
+        throw new Error('No response received from Ollama');
+      }
+    }
+
+    const responseText = result.response;
 
     const entry = {
       id: crypto.randomUUID(),
@@ -551,11 +666,113 @@ app.post('/api/chat', async (req, res) => {
       sessionId: session.id
     });
   } catch (error) {
+    console.error('Chat API error:', error.message);
+    const errorMessage = error.message.includes('ECONNREFUSED') || error.message.includes('connect ETIMEDOUT')
+      ? 'Cannot connect to Ollama service. Is the Ollama service running?'
+      : error.message || 'Failed to reach Ollama';
     return res.status(500).json({
       thinking: false,
-      error: error.message || 'Failed to reach Ollama',
+      error: errorMessage,
       history: ensureSession(session.id).history,
       sessionId: session.id
+    });
+  }
+});
+
+// Direct endpoint for Ollama API generate calls
+app.post('/api/generate', async (req, res) => {
+  const { model, prompt, stream = false, system, template, options, images } = req.body || {};
+
+  if (!model) {
+    return res.status(400).json({ error: 'Model is required' });
+  }
+
+  const endpoint = withTrailingSlash(runtimeSettings.apiEndpoint);
+
+  // Check if ollama endpoint is reachable before making the request
+  try {
+    const testResponse = await httpFetch(`${endpoint}api/tags`, {
+      method: 'GET',
+      timeout: 10000 // 10 second timeout for connectivity check
+    });
+
+    if (!testResponse.ok) {
+      throw new Error('Cannot connect to Ollama service. Is the Ollama service running?');
+    }
+  } catch (connectivityError) {
+    console.error('Ollama connectivity check failed:', connectivityError.message);
+    return res.status(500).json({
+      error: 'Cannot connect to Ollama service. Is the Ollama service running?'
+    });
+  }
+
+  try {
+    const upstream = await httpFetch(`${endpoint}api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 120000, // 2 minute timeout for the actual generation
+      body: JSON.stringify({
+        model,
+        prompt,
+        stream,
+        system,
+        template,
+        options,
+        images
+      })
+    });
+
+    if (!upstream.ok) {
+      const statusMessage = upstream.status === 404
+        ? `Model '${model}' not found. Please pull the model with 'ollama pull ${model}'`
+        : `Failed to get response from Ollama (status: ${upstream.status})`;
+      throw new Error(statusMessage);
+    }
+
+    // For streaming responses
+    if (stream) {
+      res.writeHead(200, {
+        'Content-Type': 'text/plain; charset=utf-8', // Correct content type for streaming
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+        'Transfer-Encoding': 'chunked'
+      });
+
+      // Pipe the upstream response directly to the client
+      const reader = upstream.body.getReader();
+      const decoder = new TextDecoder();
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          res.write(chunk);
+
+          // For SSE, we might need to send newlines to ensure the client receives updates
+          if (chunk.includes('\n')) {
+            res.flush?.();
+          }
+        }
+      } catch (streamError) {
+        console.error('Streaming error:', streamError);
+      } finally {
+        res.end();
+      }
+      return;
+    }
+
+    // For non-streaming responses
+    const result = await upstream.json();
+    return res.json(result);
+  } catch (error) {
+    console.error('Generate API error:', error.message);
+    const errorMessage = error.message.includes('ECONNREFUSED') || error.message.includes('connect ETIMEDOUT')
+      ? 'Cannot connect to Ollama service. Is the Ollama service running?'
+      : error.message || 'Failed to reach Ollama';
+    return res.status(500).json({
+      error: errorMessage
     });
   }
 });
@@ -599,9 +816,27 @@ app.post('/api/chat/stream', async (req, res) => {
 
   try {
     const endpoint = withTrailingSlash(endpointToUse);
+
+    // Check if ollama endpoint is reachable before making the request
+    try {
+      // Make a simple test request to see if the endpoint is available
+      const testResponse = await httpFetch(`${endpoint}api/tags`, {
+        method: 'GET',
+        timeout: 10000 // 10 second timeout for connectivity check
+      });
+
+      if (!testResponse.ok) {
+        throw new Error('Cannot connect to Ollama service. Is the Ollama service running?');
+      }
+    } catch (connectivityError) {
+      console.error('Ollama connectivity check failed:', connectivityError.message);
+      throw new Error('Cannot connect to Ollama service. Is the Ollama service running?');
+    }
+
     const upstream = await httpFetch(`${endpoint}api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      timeout: 120000, // 2 minute timeout for the generation
       body: JSON.stringify({
         model: modelToUse,
         prompt,
@@ -610,7 +845,10 @@ app.post('/api/chat/stream', async (req, res) => {
     });
 
     if (!upstream.ok || !upstream.body) {
-      throw new Error('Failed to stream from Ollama');
+      const errorMessage = upstream.status === 404
+        ? `Model '${modelToUse}' not found. Please pull the model with 'ollama pull ${modelToUse}'`
+        : `Failed to stream from Ollama (status: ${upstream.status})`;
+      throw new Error(errorMessage);
     }
 
     let buffer = '';
@@ -633,6 +871,7 @@ app.post('/api/chat/stream', async (req, res) => {
         res.flush?.();
       }
       if (parsed.error) {
+        console.error('Ollama streaming error:', parsed.error);
         throw new Error(parsed.error);
       }
       if (parsed.done) {
@@ -684,10 +923,14 @@ app.post('/api/chat/stream', async (req, res) => {
     );
     res.end();
   } catch (error) {
+    console.error('Streaming error:', error.message);
     if (!res.headersSent) {
       res.status(500);
     }
-    res.write(`data: ${JSON.stringify({ error: error.message || 'Failed to stream response' })}\n\n`);
+    const errorMessage = error.message.includes('ECONNREFUSED') || error.message.includes('connect ETIMEDOUT')
+      ? 'Cannot connect to Ollama service. Is the Ollama service running?'
+      : error.message || 'Failed to stream response';
+    res.write(`data: ${JSON.stringify({ error: errorMessage })}\n\n`);
     res.end();
   }
 });
@@ -812,6 +1055,7 @@ app.post('/api/proxy', async (req, res) => {
     const response = await httpFetch(url, {
       method,
       headers: headers || { 'Content-Type': 'application/json' },
+      timeout: 30000, // 30 second timeout for proxy requests
       body: payload ? JSON.stringify(payload) : undefined
     });
 
@@ -828,9 +1072,30 @@ app.post('/api/proxy', async (req, res) => {
 app.get('/api/models', async (req, res) => {
   try {
     const endpoint = withTrailingSlash(runtimeSettings.apiEndpoint);
-    const response = await httpFetch(`${endpoint}api/tags`);
+
+    // Check if ollama endpoint is reachable before making the request
+    try {
+      const testResponse = await httpFetch(`${endpoint}api/tags`, {
+        method: 'GET',
+        timeout: 10000 // 10 second timeout for connectivity check
+      });
+
+      if (!testResponse.ok) {
+        throw new Error('Cannot connect to Ollama service. Is the Ollama service running?');
+      }
+    } catch (connectivityError) {
+      console.error('Ollama connectivity check failed:', connectivityError.message);
+      return res.status(500).json({ error: 'Cannot connect to Ollama service. Is the Ollama service running?' });
+    }
+
+    const response = await httpFetch(`${endpoint}api/tags`, {
+      timeout: 30000 // 30 second timeout for tags request
+    });
     if (!response.ok) {
-      return res.status(500).json({ error: 'Failed to fetch models from Ollama' });
+      const statusMessage = response.status === 404
+        ? 'Ollama API endpoint not found. Is the Ollama service running?'
+        : `Failed to fetch models from Ollama (status: ${response.status})`;
+      return res.status(500).json({ error: statusMessage });
     }
     const data = await response.json();
     const models = (data.models || []).map((model) => ({
@@ -841,7 +1106,11 @@ app.get('/api/models', async (req, res) => {
     }));
     return res.json({ models });
   } catch (error) {
-    return res.status(500).json({ error: error.message || 'Unable to fetch models' });
+    console.error('Error fetching models:', error.message);
+    const errorMessage = error.message.includes('ECONNREFUSED') || error.message.includes('connect ETIMEDOUT')
+      ? 'Cannot connect to Ollama service. Is the Ollama service running?'
+      : error.message || 'Unable to fetch models';
+    return res.status(500).json({ error: errorMessage });
   }
 });
 
@@ -978,5 +1247,6 @@ app.get(/^(?!\/api).*/, (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
+  console.log('Server started successfully with /api/generate endpoint now available');
 });
 
