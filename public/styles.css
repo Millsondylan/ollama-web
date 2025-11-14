@@ -599,54 +599,63 @@ button:disabled {
 .chat-history {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 1.5rem;
   flex: 1;
   overflow-y: auto;
-  padding: 1.5rem;
-  border-radius: var(--radius);
+  padding: 2rem 3rem;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 .chat-history::-webkit-scrollbar {
-  width: 6px;
+  width: 8px;
 }
 
 .chat-history::-webkit-scrollbar-thumb {
   background: var(--border);
-  border-radius: 3px;
+  border-radius: 4px;
+}
+
+.chat-history::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
 }
 
 .chat-entry {
-  border-left: 3px solid var(--border);
-  padding: 1rem;
+  border-left: 4px solid var(--border);
+  padding: 1.5rem 1.75rem;
   border-radius: var(--radius);
   background: var(--bg-hover);
   transition: all var(--transition);
+  box-shadow: var(--shadow-sm);
 }
 
 .chat-entry.assistant {
   border-color: var(--primary);
-  background: rgba(59, 130, 246, 0.05);
+  background: rgba(59, 130, 246, 0.03);
 }
 
 .chat-entry header {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  font-size: 0.875rem;
+  font-size: 0.9rem;
   color: var(--text-secondary);
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.875rem;
 }
 
 .chat-entry header strong {
   color: var(--text);
   font-weight: 600;
+  font-size: 1rem;
 }
 
 .chat-entry p {
-  margin: 0.5rem 0 0;
-  line-height: 1.6;
+  margin: 0.75rem 0 0;
+  line-height: 1.75;
   white-space: pre-wrap;
   word-break: break-word;
+  font-size: 1rem;
 }
 
 .chat-entry p:first-of-type {
@@ -660,27 +669,31 @@ button:disabled {
 
 .composer {
   margin: 0;
-  padding: 1.5rem;
+  padding: 2rem 3rem;
   display: flex;
   flex-direction: column;
   gap: 1rem;
   border-top: 1px solid var(--border);
   background: var(--bg-alt);
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 .composer textarea {
   width: 100%;
   border-radius: var(--radius);
-  border: 1.5px solid var(--border);
-  padding: 0.875rem;
-  font-size: 1rem;
+  border: 2px solid var(--border);
+  padding: 1rem 1.25rem;
+  font-size: 1.05rem;
   resize: vertical;
-  min-height: 100px;
-  max-height: 300px;
+  min-height: 120px;
+  max-height: 400px;
   font-family: inherit;
   background: var(--bg);
   color: var(--text);
   transition: all var(--transition);
+  line-height: 1.6;
 }
 
 .composer textarea:focus {
@@ -814,6 +827,34 @@ button:disabled {
   padding: 0.5rem;
   background: rgba(245, 158, 11, 0.03);
   border-radius: var(--radius-sm);
+}
+
+.response-section {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 2px solid var(--border);
+}
+
+.response-header {
+  margin-bottom: 1rem;
+  font-size: 0.95rem;
+}
+
+.response-header strong {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.response-content {
+  line-height: 1.75;
+}
+
+.response-content p {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 1rem;
+  color: var(--text);
 }
 
 .error-entry {
