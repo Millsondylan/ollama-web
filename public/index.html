@@ -51,14 +51,17 @@
             </label>
             <button id="refresh-history" class="ghost-btn">Refresh</button>
             <button id="clear-history" class="ghost-btn">Clear</button>
+            <div class="chat-preset-control">
+              <label>
+                <span>Instruction preset</span>
+                <select id="chat-instruction-preset-select">
+                  <option value="">Custom / manual</option>
+                </select>
+              </label>
+              <button type="button" id="chat-instruction-preset-apply" class="ghost-btn">Apply</button>
+            </div>
           </div>
-        </div>
-        <div id="thinking-log" class="thinking-log">
-          <div class="thinking-log-header">
-            <span>Live thinking output</span>
-            <button type="button" id="thinking-log-clear" class="ghost-btn ghost-sm">Clear</button>
-          </div>
-          <pre id="thinking-log-content"></pre>
+          <p id="chat-instruction-preset-description" class="muted small-text preset-description"></p>
         </div>
         <div id="chat-history" class="chat-history"></div>
         <div class="composer">
@@ -107,6 +110,16 @@
             Messages to include per prompt
             <input type="number" min="1" name="maxHistory" />
           </label>
+          <div class="instruction-preset-control">
+            <label>
+              Instruction preset
+              <select id="instruction-preset-select">
+                <option value="">Custom / manual</option>
+              </select>
+            </label>
+            <button type="button" id="instruction-preset-apply" class="ghost-btn">Apply preset</button>
+          </div>
+          <p id="instruction-preset-description" class="muted small-text"></p>
           <label>
             System instructions
             <textarea name="systemInstructions" rows="4"></textarea>
@@ -190,6 +203,16 @@
             Session name
             <input type="text" name="name" placeholder="My Workspace" required />
           </label>
+          <div class="instruction-preset-control">
+            <label>
+              Instruction preset
+              <select id="session-instruction-preset-select">
+                <option value="">Custom / manual</option>
+              </select>
+            </label>
+            <button type="button" id="session-instruction-preset-apply" class="ghost-btn">Apply preset</button>
+          </div>
+          <p id="session-instruction-preset-description" class="muted small-text"></p>
           <label>
             Custom instructions
             <textarea name="instructions" rows="4" placeholder="How should the assistant behave?"></textarea>

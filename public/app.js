@@ -12,10 +12,17 @@ const STORAGE_KEYS = {
   settings: 'ollama-web-client-settings',
   pages: 'ollama-web-custom-pages',
   thinking: 'ollama-web-thinking-enabled',
-  activeSession: 'ollama-web-active-session'
+  activeSession: 'ollama-web-active-session',
+  instructionPresets: 'ollama-web-instruction-presets'
 };
 
 const THINKING_PREF_KEY = STORAGE_KEYS.thinking;
+const THINKING_ABORT_KEYWORDS = [
+  'operation was aborted',
+  'user aborted',
+  'network connection was lost',
+  'pipe is being closed'
+];
 
 const FALLBACK_BASE_URL = window.location.origin + '/';
 
@@ -45,8 +52,12 @@ const state = {
   apiKeys: [],
   lastGeneratedSecret: null,
   availableModels: [],
-  thinkingEnabled: loadThinkingPreference()
+  thinkingEnabled: loadThinkingPreference(),
+  instructionPresets: loadInstructionPresets()
 };
+
+let instructionPresetControlRegistry = [];
+let presetRefreshPromise = null;
 
 window.appState = state;
 
@@ -93,6 +104,12 @@ function getPageRegistry() {
 async function bootstrapSettings() {
   try {
     const data = await fetchJson('/api/settings');
+    state.instructionPresets = normalizeInstructionPresets(
+      data.presets,
+      data.defaults?.systemInstructions || data.current?.systemInstructions
+    );
+    persistInstructionPresets(state.instructionPresets);
+    refreshInstructionPresetControls();
     const normalizedBase = normalizeBaseUrl(data.current?.backendBaseUrl);
     state.settings = {
       ...data.current,
@@ -113,6 +130,10 @@ async function bootstrapSettings() {
     elements.status.classList.add('badge-offline');
     elements.activeModel.textContent = 'model: —';
     restoreClientSettings();
+    if (!state.instructionPresets || !state.instructionPresets.length) {
+      state.instructionPresets = loadInstructionPresets();
+    }
+    refreshInstructionPresetControls();
     state.baseUrl = normalizeBaseUrl(state.settings?.backendBaseUrl);
     state.settings = {
       ...(state.settings || {}),
@@ -125,7 +146,21 @@ async function bootstrapSettings() {
 async function loadSessions() {
   try {
     const data = await fetchJson('/api/sessions');
-    state.sessions = data.sessions || [];
+    const incoming = Array.isArray(data.sessions) ? data.sessions : [];
+    const deduped = [];
+    const seen = new Set();
+    for (let index = incoming.length - 1; index >= 0; index -= 1) {
+      const session = incoming[index];
+      if (!session?.id) {
+        continue;
+      }
+      if (seen.has(session.id)) {
+        continue;
+      }
+      seen.add(session.id);
+      deduped.unshift(session);
+    }
+    state.sessions = deduped;
     const desiredId =
       state.activeSessionId ||
       state.sessions.find((session) => session.id === data.activeSessionId)?.id ||
@@ -473,6 +508,13 @@ function attachSessionFormHandlers() {
 
   if (!form) return;
 
+  setupInstructionPresetControls({
+    selectId: 'session-instruction-preset-select',
+    applyButtonId: 'session-instruction-preset-apply',
+    descriptionId: 'session-instruction-preset-description',
+    targetField: form.elements?.instructions
+  });
+
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     try {
@@ -540,14 +582,13 @@ function attachChatHandlers() {
   const instructionsPreview = document.getElementById('session-instructions-preview');
   const modelSelector = document.getElementById('model-selector');
   const thinkingToggle = document.getElementById('thinking-toggle');
-  const thinkingLogClear = document.getElementById('thinking-log-clear');
 
   renderChatMessages();
   renderSessionSelector();
   renderModelSelector();
   updateSessionInstructionsPreview();
   updateThinkingStatus();
-  hideThinkingLog(true);
+  setupChatInstructionPresetControl();
 
   if (modelSelector) {
     modelSelector.addEventListener('change', (event) => {
@@ -565,13 +606,11 @@ function attachChatHandlers() {
       console.log('[DEBUG] Thinking toggled:', state.thinkingEnabled);
       persistThinkingPreference(state.thinkingEnabled);
       updateThinkingStatus();
-      if (!state.thinkingEnabled) {
-        hideThinkingLog(true);
+      if (state.thinkingEnabled) {
+        clearThinkingStatusError();
+        ensureThinkingPrerequisites();
       }
     });
-  }
-  if (thinkingLogClear) {
-    thinkingLogClear.addEventListener('click', () => hideThinkingLog(true));
   }
 
   sendBtn.addEventListener('click', () => sendMessage());
@@ -620,9 +659,6 @@ function attachChatHandlers() {
     const liveThinking = appendThinkingMessage();
     const effectiveModel = resolveModelForRequest();
     updateThinkingStatus(effectiveModel);
-    if (state.thinkingEnabled) {
-      showThinkingLog('');
-    }
 
     try {
       const sessionsArray = Array.isArray(state.sessions) ? state.sessions : [];
@@ -632,7 +668,6 @@ function attachChatHandlers() {
         sessionInstructions && sessionInstructions.length
           ? sessionInstructions
           : state.settings?.systemInstructions;
-
       const payload = {
         message,
         model: effectiveModel,
@@ -642,13 +677,32 @@ function attachChatHandlers() {
         thinkingEnabled: state.thinkingEnabled
       };
 
+      let triedThinkingStream = false;
+      let thinkingStreamFailed = false;
       if (state.thinkingEnabled) {
-        console.log('[DEBUG] Using thinking stream with model:', effectiveModel);
-        await sendThinkingStream(payload, liveThinking, liveUser);
-        return;
+        const thinkingReady = await ensureThinkingPrerequisites();
+        if (thinkingReady) {
+          triedThinkingStream = true;
+          console.log('[DEBUG] Using thinking stream with model:', effectiveModel);
+          try {
+            await sendThinkingStream(payload, liveThinking, liveUser);
+            return;
+          } catch (streamError) {
+            console.warn('[WARN] Thinking stream failed, falling back to standard chat:', streamError);
+            thinkingStreamFailed = true;
+            showThinkingStatusError(streamError.message || 'Thinking stream failed');
+          const fallbackMessage = buildThinkingFallbackMessage(streamError);
+          updateThinkingEntry(liveThinking, fallbackMessage);
+          }
+        } else {
+          thinkingStreamFailed = true;
+          errorEl.textContent =
+            errorEl.textContent ||
+            'Thinking mode requires a reachable Ollama model list. Falling back to standard response.';
+        }
       }
-      
-      console.log('[DEBUG] Using standard chat with model:', effectiveModel);
+
+      console.log('[DEBUG] Using standard chat with model:', effectiveModel, 'stream fallback:', triedThinkingStream);
 
       const data = await fetchJson('/api/chat', {
         method: 'POST',
@@ -689,9 +743,6 @@ function attachChatHandlers() {
         elements.activeModel.textContent = 'model: —';
       }
     } finally {
-      if (!state.thinkingEnabled) {
-        hideThinkingLog(true);
-      }
       setThinking(false);
     }
   }
@@ -707,8 +758,12 @@ function attachChatHandlers() {
     });
 
     console.log('[DEBUG] SSE response status:', response.status, response.ok);
-    if (!response.ok || !response.body) {
-      throw new Error('Unable to start thinking mode');
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `Unable to start thinking mode (status ${response.status})`);
+    }
+    if (!response.body) {
+      throw new Error('Unable to start thinking mode (empty stream)');
     }
 
     const reader = response.body.getReader();
@@ -729,7 +784,6 @@ function attachChatHandlers() {
           aggregated += chunk.token;
           console.log('[DEBUG] Token received:', chunk.token, 'Total:', aggregated.length);
           updateThinkingEntry(liveThinking, aggregated);
-          updateThinkingLog(aggregated);
         }
         if (chunk.error) {
           throw new Error(chunk.error);
@@ -750,31 +804,75 @@ function attachChatHandlers() {
       return false;
     };
 
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      let boundary;
-      while ((boundary = buffer.indexOf('\n\n')) !== -1) {
-        const rawEvent = buffer.slice(0, boundary).trim();
-        buffer = buffer.slice(boundary + 2);
-        if (!rawEvent) continue;
-        const finished = processEvent(rawEvent);
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let boundary;
+        while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+          const rawEvent = buffer.slice(0, boundary).trim();
+          buffer = buffer.slice(boundary + 2);
+          if (!rawEvent) continue;
+          const finished = processEvent(rawEvent);
+          if (finished) {
+            return;
+          }
+        }
+      }
+
+      if (buffer.trim()) {
+        const finished = processEvent(buffer.trim());
         if (finished) {
           return;
         }
       }
-    }
-
-    if (buffer.trim()) {
-      const finished = processEvent(buffer.trim());
-      if (finished) {
-        return;
+    } catch (streamError) {
+      if (reader?.cancel) {
+        try {
+          await reader.cancel();
+        } catch (_) {
+          // ignore
+        }
+      }
+      throw streamError;
+    } finally {
+      if (reader?.releaseLock) {
+        try {
+          reader.releaseLock();
+        } catch (_) {
+          // ignore
+        }
       }
     }
 
     throw new Error('Thinking stream ended unexpectedly');
   }
+}
+
+function normalizeThinkingErrorMessage(error) {
+  if (!error) return '';
+  if (typeof error === 'string') {
+    return error;
+  }
+  return error?.message || '';
+}
+
+function isAbortLikeThinkingError(error) {
+  const message = normalizeThinkingErrorMessage(error).toLowerCase();
+  if (!message) return false;
+  return THINKING_ABORT_KEYWORDS.some((keyword) => message.includes(keyword));
+}
+
+function buildThinkingFallbackMessage(error) {
+  if (isAbortLikeThinkingError(error)) {
+    return 'Thinking stream was interrupted by the browser. Switching to standard response…';
+  }
+  const detail = normalizeThinkingErrorMessage(error);
+  if (!detail) {
+    return 'Thinking stream unavailable. Retrying without live updates…';
+  }
+  return `Thinking stream unavailable (${detail}). Retrying without live updates…`;
 }
 
 function renderSessionSelector() {
@@ -887,6 +985,7 @@ function updateSessionInstructionsPreview() {
 function updateThinkingStatus(effectiveModel = resolveModelForRequest()) {
   const status = document.getElementById('thinking-status');
   if (!status) return;
+  status.classList.remove('error');
   if (!state.thinkingEnabled) {
     status.classList.remove('active');
     status.textContent = 'Thinking mode off';
@@ -902,29 +1001,33 @@ function updateThinkingStatus(effectiveModel = resolveModelForRequest()) {
   }
 }
 
-function showThinkingLog(initialText = '') {
-  const container = document.getElementById('thinking-log');
-  const content = document.getElementById('thinking-log-content');
-  if (!container || !content) return;
-  container.classList.add('visible');
-  content.textContent = initialText;
+function showThinkingStatusError(message) {
+  const status = document.getElementById('thinking-status');
+  if (!status) return;
+  status.classList.add('error');
+  status.textContent = message || 'Thinking unavailable';
 }
 
-function updateThinkingLog(text) {
-  const content = document.getElementById('thinking-log-content');
-  if (!content) return;
-  content.textContent = text;
-  content.scrollTop = content.scrollHeight;
+function clearThinkingStatusError() {
+  const status = document.getElementById('thinking-status');
+  if (!status) return;
+  status.classList.remove('error');
 }
 
-function hideThinkingLog(clearText = false) {
-  const container = document.getElementById('thinking-log');
-  const content = document.getElementById('thinking-log-content');
-  if (!container || !content) return;
-  if (clearText) {
-    content.textContent = '';
+async function ensureThinkingPrerequisites() {
+  if (!state.settings?.model) {
+    showThinkingStatusError('Select a model before enabling thinking.');
+    return false;
   }
-  container.classList.remove('visible');
+  if (!state.availableModels?.length) {
+    await loadAvailableModels();
+  }
+  if (!state.availableModels?.length) {
+    showThinkingStatusError('No models available from Ollama. Thinking disabled.');
+    return false;
+  }
+  clearThinkingStatusError();
+  return true;
 }
 
 function renderChatMessages() {
@@ -947,18 +1050,29 @@ function renderChatMessages() {
   history.forEach((entry) => {
     const wrapper = document.createElement('article');
     wrapper.className = 'chat-entry assistant';
+    const questionText = escapeHtml(entry.user || '');
+    const answerText = escapeHtml(entry.assistant || '');
     wrapper.innerHTML = `
       <header>
         <strong>${entry.user || 'User'}</strong>
         <span>${new Date(entry.timestamp || Date.now()).toLocaleTimeString()}</span>
       </header>
-      <p><strong>Q:</strong> ${entry.user || ''}</p>
-      <p><strong>A:</strong> ${entry.assistant || ''}</p>
+      <p><strong>Q:</strong> ${questionText}</p>
+      <p><strong>A:</strong> ${answerText}</p>
     `;
     container.appendChild(wrapper);
   });
 
   container.scrollTop = container.scrollHeight;
+}
+
+function escapeHtml(value = '') {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function clearLiveEntries() {
@@ -992,10 +1106,7 @@ function appendThinkingMessage() {
       <strong>Assistant</strong>
       <span>${new Date().toLocaleTimeString()}</span>
     </header>
-    <p><strong>A:</strong>
-      <span class="typing-dots"><span></span><span></span><span></span></span>
-      <span class="thinking-text">Thinking…</span>
-    </p>
+    <p><strong>A:</strong> <span class="assistant-live-text"></span></p>
   `;
   container.appendChild(article);
   container.scrollTop = container.scrollHeight;
@@ -1004,15 +1115,10 @@ function appendThinkingMessage() {
 
 function updateThinkingEntry(entry, text) {
   if (!entry) return;
-  const dots = entry.querySelector('.typing-dots');
-  if (dots) {
-    dots.style.display = text ? 'none' : 'inline-flex';
+  const stream = entry.querySelector('.assistant-live-text');
+  if (stream) {
+    stream.textContent = text || '';
   }
-  const thinkingText = entry.querySelector('.thinking-text');
-  if (thinkingText) {
-    thinkingText.textContent = text || 'Thinking…';
-  }
-  updateThinkingLog(text || '');
 }
 
 function attachSettingsHandlers() {
@@ -1024,6 +1130,12 @@ function attachSettingsHandlers() {
 
   populateSettingsForm(form);
   renderCustomPages(list);
+  setupInstructionPresetControls({
+    selectId: 'instruction-preset-select',
+    applyButtonId: 'instruction-preset-apply',
+    descriptionId: 'instruction-preset-description',
+    targetField: form?.elements?.systemInstructions
+  });
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -1135,6 +1247,264 @@ function populateSettingsForm(form) {
   form.elements.theme.value = state.settings.theme;
   form.elements.maxHistory.value = state.settings.maxHistory;
   form.elements.systemInstructions.value = state.settings.systemInstructions;
+}
+
+function setupInstructionPresetControls({
+  selectId,
+  applyButtonId,
+  descriptionId,
+  targetField
+}) {
+  const select = selectId ? document.getElementById(selectId) : null;
+  const applyButton = applyButtonId ? document.getElementById(applyButtonId) : null;
+  const descriptionEl = descriptionId ? document.getElementById(descriptionId) : null;
+  if (!select || !targetField) return;
+
+  const control = {
+    select,
+    targetField,
+    descriptionEl,
+    applyButton,
+    refresh() {
+      if (!document.body.contains(select) || !document.body.contains(targetField)) {
+        return false;
+      }
+      populateOptions();
+      syncSelectionFromValue(targetField.value);
+      return true;
+    }
+  };
+
+  function populateOptions() {
+    const presets = getInstructionPresetCatalog();
+    const customOption = '<option value="">Custom / manual</option>';
+    const presetOptions = presets
+      .map((preset) => `<option value="${preset.id}">${preset.label}</option>`)
+      .join('');
+    select.innerHTML = `${customOption}${presetOptions}`;
+  }
+
+  function updateDescription(preset) {
+    if (!descriptionEl) return;
+    if (preset) {
+      descriptionEl.textContent = preset.description || 'Preset applied.';
+    } else {
+      descriptionEl.textContent = 'Custom instructions in use.';
+    }
+  }
+
+  function syncSelectionFromValue(value) {
+    const match = findInstructionPresetMatch(value);
+    if (match) {
+      select.value = match.id;
+      updateDescription(match);
+    } else {
+      select.value = '';
+      updateDescription(null);
+    }
+  }
+
+  select.addEventListener('change', () => {
+    const preset = findInstructionPresetById(select.value);
+    updateDescription(preset || null);
+  });
+
+  targetField.addEventListener('input', () => {
+    syncSelectionFromValue(targetField.value);
+  });
+
+  applyButton?.addEventListener('click', () => {
+    let preset = findInstructionPresetById(select.value);
+    if (!preset) {
+      preset = getInstructionPresetCatalog().find((entry) => entry.id);
+      if (!preset) {
+        return;
+      }
+      select.value = preset.id;
+      updateDescription(preset);
+    }
+    targetField.value = preset.instructions || '';
+    targetField.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+
+  instructionPresetControlRegistry.push(control);
+  control.refresh();
+  ensureInstructionPresetsLoaded();
+}
+
+function setupChatInstructionPresetControl() {
+  const select = document.getElementById('chat-instruction-preset-select');
+  const applyButton = document.getElementById('chat-instruction-preset-apply');
+  const descriptionEl = document.getElementById('chat-instruction-preset-description');
+  if (!select || !applyButton) return;
+  if (select.dataset.initialized === 'true') {
+    return;
+  }
+  select.dataset.initialized = 'true';
+
+  const syncFromSession = () => {
+    if (!document.body.contains(select)) {
+      window.removeEventListener('ollama-state', syncFromSession);
+      return;
+    }
+    const session =
+      state.sessions.find((item) => item.id === state.activeSessionId) ||
+      state.sessions[0];
+    const match = findInstructionPresetMatch(session?.instructions);
+    if (match) {
+      select.value = match.id;
+      updateDescription(match);
+    } else {
+      select.value = '';
+      updateDescription(null);
+    }
+  };
+
+  function populateOptions() {
+    const presets = getInstructionPresetCatalog();
+    const customOption = '<option value=\"\">Custom / manual</option>';
+    const presetOptions = presets
+      .map((preset) => `<option value=\"${preset.id}\">${preset.label}</option>`)
+      .join('');
+    select.innerHTML = `${customOption}${presetOptions}`;
+  }
+
+  function updateDescription(preset) {
+    if (!descriptionEl) return;
+    if (preset) {
+      descriptionEl.textContent = `Selected: ${preset.label}`;
+    } else {
+      descriptionEl.textContent = 'Custom instructions active for this session.';
+    }
+  }
+
+  select.addEventListener('change', () => {
+    const preset = findInstructionPresetById(select.value);
+    updateDescription(preset || null);
+  });
+
+  applyButton.addEventListener('click', async () => {
+    const preset = findInstructionPresetById(select.value);
+    if (!preset) {
+      updateDescription(null);
+      if (!state.activeSessionId) {
+        return;
+      }
+      applyButton.disabled = true;
+      try {
+        await fetchJson(`/api/sessions/${encodeURIComponent(state.activeSessionId)}`, {
+          method: 'PUT',
+          body: JSON.stringify({ instructions: '' })
+        });
+        await loadSessions();
+        await loadServerHistory(state.activeSessionId);
+        updateSessionInstructionsPreview();
+        renderSessionSelector();
+      } catch (error) {
+        console.error('Failed to reset session instructions', error);
+        if (descriptionEl) {
+          descriptionEl.textContent = error.message || 'Failed to reset instructions';
+        }
+      } finally {
+        applyButton.disabled = false;
+      }
+      return;
+    }
+    if (!state.activeSessionId) {
+      updateDescription(null);
+      return;
+    }
+    applyButton.disabled = true;
+    try {
+      await fetchJson(`/api/sessions/${encodeURIComponent(state.activeSessionId)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ instructions: preset.instructions })
+      });
+      await loadSessions();
+      await loadServerHistory(state.activeSessionId);
+      updateSessionInstructionsPreview();
+      renderSessionSelector();
+      updateDescription(preset);
+    } catch (error) {
+      console.error('Failed to apply preset to session', error);
+      if (descriptionEl) {
+        descriptionEl.textContent = error.message || 'Failed to apply preset';
+      }
+    } finally {
+      applyButton.disabled = false;
+    }
+  });
+
+  const control = {
+    refresh() {
+      if (!document.body.contains(select)) {
+        window.removeEventListener('ollama-state', syncFromSession);
+        return false;
+      }
+      populateOptions();
+      syncFromSession();
+      return true;
+    }
+  };
+
+  instructionPresetControlRegistry.push(control);
+  window.addEventListener('ollama-state', syncFromSession);
+  control.refresh();
+  ensureInstructionPresetsLoaded();
+}
+
+function getInstructionPresetCatalog() {
+  const source = Array.isArray(state.instructionPresets) ? state.instructionPresets : [];
+  return source.map((preset, index) => ({
+    id: preset.id || `preset-${index + 1}`,
+    label: preset.label || `Preset ${index + 1}`,
+    description: preset.description || '',
+    instructions: preset.instructions || ''
+  }));
+}
+
+function findInstructionPresetById(id) {
+  if (!id) return null;
+  return getInstructionPresetCatalog().find((preset) => preset.id === id) || null;
+}
+
+function findInstructionPresetMatch(value) {
+  const normalized = normalizeInstructionText(value);
+  if (!normalized) {
+    return null;
+  }
+  return (
+    getInstructionPresetCatalog().find(
+      (preset) => normalizeInstructionText(preset.instructions) === normalized
+    ) || null
+  );
+}
+
+function normalizeInstructionText(value) {
+  return value ? value.replace(/\r\n/g, '\n').trim() : '';
+}
+
+function normalizeInstructionPresets(presets, fallbackInstruction) {
+  if (Array.isArray(presets) && presets.length) {
+    return presets.map((preset, index) => ({
+      id: preset.id || `preset-${index + 1}`,
+      label: preset.label || `Preset ${index + 1}`,
+      description: preset.description || '',
+      instructions: preset.instructions || ''
+    }));
+  }
+  const fallback = normalizeInstructionText(fallbackInstruction);
+  if (fallback) {
+    return [
+      {
+        id: 'default-assistant',
+        label: 'Default instructions',
+        description: 'Fallback preset derived from server defaults.',
+        instructions: fallback
+      }
+    ];
+  }
+  return [];
 }
 
 function renderHistoryPage() {
@@ -1261,6 +1631,9 @@ function resetSessionForm() {
   if (!form) return;
   form.reset();
   form.elements.sessionId.value = '';
+  if (form.elements.instructions) {
+    form.elements.instructions.dispatchEvent(new Event('input', { bubbles: true }));
+  }
   const title = document.getElementById('session-form-title');
   const submit = document.getElementById('session-form-submit');
   if (title) title.textContent = 'Create Session';
@@ -1275,6 +1648,9 @@ function populateSessionForm(session) {
   form.elements.instructions.value = session.instructions || '';
   if (form.elements.attachmentText) {
     form.elements.attachmentText.value = '';
+  }
+  if (form.elements.instructions) {
+    form.elements.instructions.dispatchEvent(new Event('input', { bubbles: true }));
   }
   const title = document.getElementById('session-form-title');
   const submit = document.getElementById('session-form-submit');
@@ -1385,6 +1761,70 @@ function persistCustomPages() {
   localStorage.setItem(STORAGE_KEYS.pages, JSON.stringify(state.customPages));
 }
 
+function persistInstructionPresets(presets) {
+  try {
+    localStorage.setItem(
+      STORAGE_KEYS.instructionPresets,
+      JSON.stringify(Array.isArray(presets) ? presets : [])
+    );
+  } catch (_) {
+    // ignore
+  }
+}
+
+function loadInstructionPresets() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.instructionPresets);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function refreshInstructionPresetControls() {
+  instructionPresetControlRegistry = instructionPresetControlRegistry.filter((control) => {
+    if (!control?.refresh) {
+      return false;
+    }
+    try {
+      return control.refresh() !== false;
+    } catch (error) {
+      console.warn('Failed to refresh preset control', error);
+      return false;
+    }
+  });
+}
+
+function ensureInstructionPresetsLoaded() {
+  if (state.instructionPresets && state.instructionPresets.length) {
+    return null;
+  }
+  if (presetRefreshPromise) {
+    return presetRefreshPromise;
+  }
+  presetRefreshPromise = (async () => {
+    try {
+      const data = await fetchJson('/api/settings');
+      const normalized = normalizeInstructionPresets(
+        data.presets,
+        data.defaults?.systemInstructions || data.current?.systemInstructions
+      );
+      if (normalized.length) {
+        state.instructionPresets = normalized;
+        persistInstructionPresets(normalized);
+        refreshInstructionPresetControls();
+      }
+    } catch (error) {
+      console.warn('Unable to fetch instruction presets', error);
+    } finally {
+      presetRefreshPromise = null;
+    }
+  })();
+  return presetRefreshPromise;
+}
+
 function persistClientSettings() {
   localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(state.settings));
 }
@@ -1492,9 +1932,16 @@ async function syncDataFromCloud() {
     const response = await fetchJson('/api/sync/data');
 
     if (response && response.sessions !== undefined) {
-      // Update application state with synced data
-      state.sessions = response.sessions || state.sessions;
-      state.activeSessionId = response.activeSessionId || state.activeSessionId;
+      const syncedSessions = Array.isArray(response.sessions)
+        ? response.sessions
+        : Object.values(response.sessions || {});
+      if (syncedSessions.length) {
+        state.sessions = syncedSessions;
+      }
+      if (response.activeSessionId) {
+        const existsInSync = state.sessions.find((session) => session.id === response.activeSessionId);
+        state.activeSessionId = existsInSync ? response.activeSessionId : state.activeSessionId;
+      }
       state.settings = { ...state.settings, ...response.settings };
       state.localHistory = response.localHistory || state.localHistory;
       // Note: We might want to be more careful about merging history data

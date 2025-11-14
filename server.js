@@ -15,6 +15,7 @@ const path = require('path');
 const fs = require('fs');
 const fsp = fs.promises;
 const { spawn, spawnSync } = require('child_process');
+const { Readable } = require('stream');
 const express = require('express');
 const cors = require('cors');
 const crypto = require('crypto');
@@ -33,6 +34,16 @@ const RAW_BASE_URL =
   process.env.PUBLIC_URL ||
   `http://localhost:${PORT}`;
 const DEFAULT_BASE_URL = withTrailingSlash(RAW_BASE_URL);
+const DEFAULT_FETCH_TIMEOUT_MS = Number(process.env.HTTP_FETCH_TIMEOUT_MS || 60000);
+const OLLAMA_CONNECTIVITY_TIMEOUT_MS = Number(process.env.OLLAMA_CONNECTIVITY_TIMEOUT_MS || 10000);
+const OLLAMA_GENERATION_TIMEOUT_MS = Number(process.env.OLLAMA_GENERATION_TIMEOUT_MS || 600000);
+const OLLAMA_STREAM_TIMEOUT_MS =
+  process.env.OLLAMA_STREAM_TIMEOUT_MS !== undefined
+    ? Math.max(Number(process.env.OLLAMA_STREAM_TIMEOUT_MS) || 0, 0)
+    : 0;
+const OLLAMA_UNAVAILABLE_MESSAGE = 'Cannot connect to Ollama service. Is the Ollama service running?';
+const MAX_GENERATE_IMAGES = Number(process.env.MAX_GENERATE_IMAGES || 4);
+const STREAM_HEARTBEAT_INTERVAL_MS = Number(process.env.STREAM_HEARTBEAT_INTERVAL_MS || 15000);
 
 const __dirnameResolved = __dirname || path.resolve();
 const STORAGE_DIR = path.join(__dirnameResolved, 'storage');
@@ -52,15 +63,142 @@ const API_KEYS_FILE = path.join(STORAGE_DIR, 'api-keys.json');
  */
 
 // Defaults are surfaced via GET /api/settings and can be overridden from the UI.
+const DEFAULT_SYSTEM_INSTRUCTIONS =
+  'You are an honest, detail-oriented AI assistant that helps the user accomplish local tasks.';
+
 const DEFAULT_SETTINGS = {
   model: DEFAULT_MODEL,
   apiEndpoint: DEFAULT_ENDPOINT,
   theme: 'system',
-  systemInstructions:
-    'You are an honest, detail-oriented AI assistant that helps the user accomplish local tasks.',
+  systemInstructions: DEFAULT_SYSTEM_INSTRUCTIONS,
   maxHistory: DEFAULT_CONTEXT_LIMIT,
   backendBaseUrl: DEFAULT_BASE_URL
 };
+
+const AI_CODER_PROMPT_PRESET = `<prompt>
+  <role>You are a prompt concierge for autonomous AI coders who work inside existing repositories.</role>
+  <interaction_rules>
+    <rule>Determine whether the user needs an actual response or a prompt for their coding agent. If the user appears to ask for a prompt, output only the prompt, nothing else.</rule>
+    <rule>You never write code or run commands yourself; you only produce perfect prompts or concise guidance.</rule>
+    <rule>Assume zero prior knowledge of the project. Always instruct the coding agent to begin with discovery, then implementation, continuing until every requested change is fully delivered.</rule>
+    <rule>Assume the work happens inside the current working directory and against an existing codebase, not a greenfield project.</rule>
+    <rule>Every transformed prompt must include a professional TODO list that begins with “Search existing files” and drives the agent through discovery → implementation → verification without pausing for user feedback.</rule>
+    <rule>Keep prompts compact but fully operational: no placeholders, no mock data, no shortcuts, no denials—only concrete, actionable instructions that ensure full completion.</rule>
+    <rule>Explicitly command the AI coder to finish the entire task autonomously; never ask the user for clarification once the prompt is generated.</rule>
+  </interaction_rules>
+  <model_preferences>
+    <option name="Claude Sonnet 4.5">Use for most sessions; strongest long-horizon reasoning and coding.</option>
+    <option name="Claude Opus 4.1">Use when specialized reasoning depth is required.</option>
+    <option name="Claude Sonnet 4 (1M ctx beta)">Prefer when extremely long context is needed.</option>
+    <command>Model changes happen via: forge model set &lt;model&gt;</command>
+  </model_preferences>
+  <formatting>
+    <instruction>All prompts must use XML tags to separate role, objective, instructions, context, tests, and output expectations.</instruction>
+    <instruction>Use nested tags to express hierarchy, keep tags consistent, and wrap any code, configs, or data inside dedicated tags (e.g., &lt;codebase&gt;).</instruction>
+    <instruction>Request chain-of-thought using tags like &lt;thinking&gt; and &lt;response&gt; so reasoning stays separated from final output.</instruction>
+  </formatting>
+  <workflow>
+    <phase name="discovery">Map files, configs, dependencies; summarize findings before edits.</phase>
+    <phase name="todo_creation">Create at least 20 ordered TODOs labeled core/support/verify; persist them.</phase>
+    <phase name="execution">Work TODOs sequentially, verifying each before continuing. If a step fails, debug, retry, and log.</phase>
+    <phase name="verification">Perform logical + empirical verification twice (tests, CLIs, or inspections). Fix code, not tests, when failures appear.</phase>
+    <phase name="documentation">Update README/logs only when requested. Summaries must be truthful and list errors if any remain.</phase>
+  </workflow>
+  <tests>
+    <rule>Lead with test requirements whenever possible; treat tests as the contract.</rule>
+    <rule>Instruct agents to avoid hard-coded outputs meant only to satisfy tests; implement real logic.</rule>
+  </tests>
+  <agentic_guidance>
+    <rule>Explicitly direct the coding agent to take action (edit files, run commands, commit) rather than suggesting ideas.</rule>
+    <rule>Never allow speculation. Require the agent to read relevant files before answering questions about them.</rule>
+    <rule>Emphasize incremental progress, state tracking, and truthful logging of every command or tool call.</rule>
+  </agentic_guidance>
+  <prompt_structure>
+    <section order="1">&lt;role&gt;Define persona, e.g., "You are a senior full-stack engineer...".&lt;/role&gt;</section>
+    <section order="2">&lt;objective&gt;State the main goal with a strong action verb.&lt;/objective&gt;</section>
+    <section order="3">&lt;instructions&gt;Detail requirements, constraints, and style guides.&lt;/instructions&gt;</section>
+    <section order="4">&lt;context&gt;Provide repo paths, existing code snippets, configs, or logs.&lt;/context&gt;</section>
+    <section order="5">&lt;examples&gt;Optional few-shot patterns.&lt;/examples&gt;</section>
+    <section order="6">&lt;output_format&gt;Define the desired response schema, reiterating critical rules.&lt;/output_format&gt;</section>
+  </prompt_structure>
+  <thinking>
+    <instruction>Encourage step-by-step reasoning inside &lt;thinking&gt; tags before producing the final &lt;response&gt;.</instruction>
+    <instruction>After tool output, include a reflection step deciding the best next action.</instruction>
+  </thinking>
+  <directory_policy>
+    <rule>Assume the agent works inside the repository root and must keep changes scoped to existing files unless told otherwise.</rule>
+    <rule>Stress that the agent must keep running until every task is fully implemented and verified.</rule>
+  </directory_policy>
+  <knowledge_sources>
+    <readme>
+      Content is reproduced exactly as provided:
+
+      This file contains a full guide on effective prompt engineering, covering:
+
+      Prompt hierarchy
+
+      Role definition
+
+      Objective → Instructions → Requirements → Context → Examples → Output specification
+
+      Chain-of-thought prompting
+
+      Task decomposition
+
+      Test-driven prompting
+
+      Codebase context handling
+
+      Implementation strategies
+
+      Multi-step workflows
+
+      Documentation practices
+
+      Model configuration
+
+      Use of variables
+
+      (Everything above is directly from your uploaded Read.md.)
+    </readme>
+    <rea2d>
+      Content is reproduced exactly as provided:
+
+      This file contains:
+
+      Detailed explanation of XML-tag–structured prompting
+
+      Why XML reduces instruction bleed
+
+      How to segment instructions, data, examples, and reasoning
+
+      How to force structured outputs
+
+      How to wrap chain-of-thought in &lt;thinking&gt; and final answer in &lt;answer&gt;
+
+      Tagging best practices
+
+      When to use XML vs JSON
+
+      (Everything above is directly from your uploaded rea2d.md.)
+    </rea2d>
+  </knowledge_sources>
+</prompt>`;
+
+const INSTRUCTION_PRESETS = [
+  {
+    id: 'default-assistant',
+    label: 'Honest local assistant',
+    description: 'General-purpose helper for local tasks with balanced behavior.',
+    instructions: DEFAULT_SYSTEM_INSTRUCTIONS
+  },
+  {
+    id: 'ai-coder-prompt',
+    label: 'AI coder prompt concierge',
+    description: 'Produces XML prompts for autonomous Claude-based coding agents with discovery-first workflow.',
+    instructions: AI_CODER_PROMPT_PRESET
+  }
+];
 
 let runtimeSettings = { ...DEFAULT_SETTINGS };
 
@@ -131,6 +269,27 @@ function normalizeSession(session, fallbackName = 'Untitled Session') {
   };
 }
 
+function normalizeSessionCollection(input) {
+  const collection = {};
+  if (Array.isArray(input)) {
+    input.forEach((session) => {
+      if (!session) return;
+      const normalized = normalizeSession(session, session.name || 'Session');
+      collection[normalized.id] = normalized;
+    });
+    return collection;
+  }
+  if (input && typeof input === 'object') {
+    Object.values(input).forEach((session) => {
+      if (!session) return;
+      const normalized = normalizeSession(session, session.name || 'Session');
+      collection[normalized.id] = normalized;
+    });
+    return collection;
+  }
+  return { [DEFAULT_SESSION_ID]: createDefaultSession() };
+}
+
 function loadSessionStore() {
   ensureStorageDir();
   if (!fs.existsSync(SESSIONS_FILE)) {
@@ -145,17 +304,12 @@ function loadSessionStore() {
   try {
     const raw = fs.readFileSync(SESSIONS_FILE, 'utf8');
     const parsed = JSON.parse(raw);
-    const sessions = parsed.sessions || {};
+    const sessions = normalizeSessionCollection(parsed.sessions || {});
     if (!sessions[DEFAULT_SESSION_ID]) {
       sessions[DEFAULT_SESSION_ID] = createDefaultSession();
-    } else {
-      sessions[DEFAULT_SESSION_ID] = normalizeSession(
-        { ...sessions[DEFAULT_SESSION_ID], id: DEFAULT_SESSION_ID },
-        'Default Session'
-      );
     }
     return {
-      activeSessionId: parsed.activeSessionId || DEFAULT_SESSION_ID,
+      activeSessionId: sessions[parsed.activeSessionId] ? parsed.activeSessionId : DEFAULT_SESSION_ID,
       sessions
     };
   } catch (error) {
@@ -269,6 +423,7 @@ function sanitizeAttachments(rawAttachments) {
 
 async function persistSessions() {
   ensureStorageDir();
+  sessionStore.sessions = normalizeSessionCollection(sessionStore.sessions);
   await fsp.writeFile(SESSIONS_FILE, JSON.stringify(sessionStore, null, 2), 'utf8');
 }
 
@@ -310,19 +465,23 @@ function ensureSession(sessionId = DEFAULT_SESSION_ID) {
 }
 
 function listSessions() {
-  return Object.values(sessionStore.sessions).map((session) => ({
+  return Object.values(sessionStore.sessions).map((session) => {
+    const attachments = Array.isArray(session.attachments) ? session.attachments : [];
+    const history = Array.isArray(session.history) ? session.history : [];
+    return {
     id: session.id,
     name: session.name,
     instructions: session.instructions,
-    attachments: session.attachments.map((att) => ({
+    attachments: attachments.map((att) => ({
       id: att.id,
       name: att.name,
       type: att.type
     })),
-    historyLength: session.history.length,
+    historyLength: history.length,
     createdAt: session.createdAt,
     updatedAt: session.updatedAt
-  }));
+    };
+  });
 }
 
 function buildSessionPayload(body = {}) {
@@ -389,28 +548,178 @@ async function pushHistory(sessionId, entry) {
   await persistSessions();
 }
 
+function bindAbortOnClientDisconnect(req, controller) {
+  if (!req || !controller) {
+    return () => {};
+  }
+
+  const cancel = () => {
+    if (!controller.signal.aborted) {
+      controller.abort();
+    }
+  };
+
+  req.on('aborted', cancel);
+
+  return () => {
+    if (typeof req.off === 'function') {
+      req.off('aborted', cancel);
+    } else {
+      req.removeListener('aborted', cancel);
+    }
+  };
+}
+
+function applyStreamingGuards(req, res, label = 'stream') {
+  if (req?.setTimeout) {
+    req.setTimeout(0);
+  }
+  if (res?.setTimeout) {
+    res.setTimeout(0);
+  }
+  if (res?.socket?.setTimeout) {
+    res.socket.setTimeout(0);
+  }
+  if (res?.socket?.setKeepAlive) {
+    res.socket.setKeepAlive(true);
+  }
+
+  if (!req) {
+    return () => {};
+  }
+
+  const onAbort = () => {
+    console.warn(`[${label}] client aborted connection`);
+  };
+
+  req.on('aborted', onAbort);
+
+  return () => {
+    if (typeof req.off === 'function') {
+      req.off('aborted', onAbort);
+    } else {
+      req.removeListener('aborted', onAbort);
+    }
+  };
+}
+
+function startSseHeartbeat(res, label = 'stream') {
+  if (!STREAM_HEARTBEAT_INTERVAL_MS || STREAM_HEARTBEAT_INTERVAL_MS <= 0) {
+    return () => {};
+  }
+
+  const timer = setInterval(() => {
+    try {
+      res.write(`:heartbeat ${Date.now()}\n\n`);
+      res.flush?.();
+    } catch (error) {
+      console.warn(`[${label}] heartbeat failed: ${error.message}`);
+    }
+  }, STREAM_HEARTBEAT_INTERVAL_MS);
+
+  timer.unref?.();
+
+  return () => {
+    clearInterval(timer);
+  };
+}
+
+function toNodeReadable(body) {
+  if (!body) {
+    return null;
+  }
+  if (typeof body.getReader === 'function' && typeof Readable.fromWeb === 'function') {
+    return Readable.fromWeb(body);
+  }
+  return body;
+}
+
+async function ensureOllamaReachable(endpoint) {
+  try {
+    const response = await httpFetch(`${endpoint}api/tags`, {
+      method: 'GET',
+      timeout: OLLAMA_CONNECTIVITY_TIMEOUT_MS
+    });
+
+    if (!response.ok) {
+      throw new Error(OLLAMA_UNAVAILABLE_MESSAGE);
+    }
+  } catch (error) {
+    console.error('Ollama connectivity check failed:', error.message);
+    throw new Error(OLLAMA_UNAVAILABLE_MESSAGE);
+  }
+}
+
+function normalizeGenerateInputs(body = {}) {
+  const normalizedModel =
+    typeof body.model === 'string' && body.model.trim().length ? body.model.trim() : body.model;
+  const safePrompt = typeof body.prompt === 'string' ? body.prompt : '';
+  const normalized = {
+    model: normalizedModel,
+    prompt: safePrompt.trim(),
+    stream: Boolean(body.stream),
+    system: typeof body.system === 'string' && body.system.trim().length ? body.system : undefined,
+    template: typeof body.template === 'string' && body.template.trim().length ? body.template : undefined,
+    options:
+      body.options && typeof body.options === 'object' && !Array.isArray(body.options) ? body.options : undefined,
+    images: Array.isArray(body.images) && body.images.length ? body.images.slice(0, MAX_GENERATE_IMAGES) : undefined
+  };
+
+  return normalized;
+}
+
+function summarizeGenerateRequest(payload) {
+  return {
+    model: payload.model,
+    stream: Boolean(payload.stream),
+    promptChars: payload.prompt?.length || 0,
+    hasSystem: Boolean(payload.system),
+    hasTemplate: Boolean(payload.template),
+    imageCount: payload.images?.length || 0,
+    hasOptions: Boolean(payload.options)
+  };
+}
+
 const ensureFetch = () => {
   if (typeof fetch !== 'undefined') {
-    // If fetch is available globally (e.g., in newer Node versions), wrap it with timeout
     return async (url, options = {}) => {
-      // Extract timeout from options
-      const { timeout = 60000 } = options; // Default to 60 seconds
-      delete options.timeout; // Remove timeout from options as it's not a valid fetch option
+      const { timeout = DEFAULT_FETCH_TIMEOUT_MS, signal } = options;
+      delete options.timeout;
+      delete options.signal;
 
-      // Create AbortController for timeout
       const controller = new AbortController();
-      const id = setTimeout(() => controller.abort(), timeout);
+      let timeoutId = null;
+      let abortListener;
+      const shouldTimeout = Number.isFinite(timeout) && timeout > 0;
+      if (shouldTimeout) {
+        timeoutId = setTimeout(() => controller.abort(new Error('Request timeout')), timeout);
+      }
+
+      if (signal) {
+        if (signal.aborted) {
+          controller.abort(signal.reason);
+        } else {
+          abortListener = () => controller.abort(signal.reason);
+          signal.addEventListener('abort', abortListener, { once: true });
+        }
+      }
 
       try {
         const response = await fetch(url, {
           ...options,
           signal: controller.signal
         });
-        clearTimeout(id);
+        if (timeoutId) clearTimeout(timeoutId);
+        if (abortListener && signal) {
+          signal.removeEventListener('abort', abortListener);
+        }
         return response;
       } catch (error) {
-        clearTimeout(id);
-        if (error.name === 'AbortError') {
+        if (timeoutId) clearTimeout(timeoutId);
+        if (abortListener && signal) {
+          signal.removeEventListener('abort', abortListener);
+        }
+        if (error.name === 'AbortError' && !controller.signal.aborted) {
           throw new Error('Request timeout');
         }
         throw error;
@@ -420,24 +729,43 @@ const ensureFetch = () => {
 
   return async (url, options = {}) => {
     const { default: nodeFetch } = await import('node-fetch');
-    // Extract timeout from options for node-fetch
-    const { timeout = 60000 } = options; // Default to 60 seconds
-    delete options.timeout; // Remove timeout from options as it's not a valid fetch option
+    const { timeout = DEFAULT_FETCH_TIMEOUT_MS, signal } = options;
+    delete options.timeout;
+    delete options.signal;
 
-    // Create AbortController for timeout
     const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), timeout);
+    let timeoutId = null;
+    let abortListener;
+    const shouldTimeout = Number.isFinite(timeout) && timeout > 0;
+    if (shouldTimeout) {
+      timeoutId = setTimeout(() => controller.abort(new Error('Request timeout')), timeout);
+    }
+
+    if (signal) {
+      if (signal.aborted) {
+        controller.abort(signal.reason);
+      } else {
+        abortListener = () => controller.abort(signal.reason);
+        signal.addEventListener('abort', abortListener, { once: true });
+      }
+    }
 
     try {
       const response = await nodeFetch(url, {
         ...options,
         signal: controller.signal
       });
-      clearTimeout(id);
+      if (timeoutId) clearTimeout(timeoutId);
+      if (abortListener && signal) {
+        signal.removeEventListener('abort', abortListener);
+      }
       return response;
     } catch (error) {
-      clearTimeout(id);
-      if (error.name === 'AbortError') {
+      if (timeoutId) clearTimeout(timeoutId);
+      if (abortListener && signal) {
+        signal.removeEventListener('abort', abortListener);
+      }
+      if (error.name === 'AbortError' && !controller.signal.aborted) {
         throw new Error('Request timeout');
       }
       throw error;
@@ -530,7 +858,7 @@ function runOllama({ prompt, model, apiEndpoint, timeoutMs = 120000 }) {
         } else {
           const message = stderr || `Ollama exited with code ${code}`;
           if (message.includes('connection refused') || message.includes('ECONNREFUSED')) {
-            reject(new Error('Cannot connect to Ollama service. Is the Ollama service running?'));
+            reject(new Error(OLLAMA_UNAVAILABLE_MESSAGE));
           } else if (message.includes('not found') || message.includes('No Modelfile')) {
             reject(new Error(`Model '${model}' not found. Please pull the model with 'ollama pull ${model}'`));
           } else {
@@ -596,25 +924,12 @@ app.post('/api/chat', async (req, res) => {
   try {
     const endpoint = withTrailingSlash(endpointToUse);
 
-    // Check if ollama endpoint is reachable before making the request
-    try {
-      const testResponse = await httpFetch(`${endpoint}api/tags`, {
-        method: 'GET',
-        timeout: 10000 // 10 second timeout for connectivity check
-      });
-
-      if (!testResponse.ok) {
-        throw new Error('Cannot connect to Ollama service. Is the Ollama service running?');
-      }
-    } catch (connectivityError) {
-      console.error('Ollama connectivity check failed:', connectivityError.message);
-      throw new Error('Cannot connect to Ollama service. Is the Ollama service running?');
-    }
+    await ensureOllamaReachable(endpoint);
 
     const upstream = await httpFetch(`${endpoint}api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      timeout: 120000, // 2 minute timeout for the actual generation
+      timeout: OLLAMA_GENERATION_TIMEOUT_MS,
       body: JSON.stringify({
         model: modelToUse,
         prompt,
@@ -668,7 +983,7 @@ app.post('/api/chat', async (req, res) => {
   } catch (error) {
     console.error('Chat API error:', error.message);
     const errorMessage = error.message.includes('ECONNREFUSED') || error.message.includes('connect ETIMEDOUT')
-      ? 'Cannot connect to Ollama service. Is the Ollama service running?'
+      ? OLLAMA_UNAVAILABLE_MESSAGE
       : error.message || 'Failed to reach Ollama';
     return res.status(500).json({
       thinking: false,
@@ -681,69 +996,77 @@ app.post('/api/chat', async (req, res) => {
 
 // Direct endpoint for Ollama API generate calls
 app.post('/api/generate', async (req, res) => {
-  const { model, prompt, stream = false, system, template, options, images } = req.body || {};
+  const normalizedPayload = normalizeGenerateInputs(req.body || {});
 
-  if (!model) {
+  if (!normalizedPayload.model) {
+    console.warn('[generate] Rejected request: missing model');
     return res.status(400).json({ error: 'Model is required' });
+  }
+
+  if (!normalizedPayload.prompt && !(normalizedPayload.images && normalizedPayload.images.length)) {
+    console.warn('[generate] Rejected request: missing prompt or images');
+    return res.status(400).json({ error: 'Either prompt or images are required' });
   }
 
   const endpoint = withTrailingSlash(runtimeSettings.apiEndpoint);
 
-  // Check if ollama endpoint is reachable before making the request
   try {
-    const testResponse = await httpFetch(`${endpoint}api/tags`, {
-      method: 'GET',
-      timeout: 10000 // 10 second timeout for connectivity check
-    });
-
-    if (!testResponse.ok) {
-      throw new Error('Cannot connect to Ollama service. Is the Ollama service running?');
-    }
-  } catch (connectivityError) {
-    console.error('Ollama connectivity check failed:', connectivityError.message);
-    return res.status(500).json({
-      error: 'Cannot connect to Ollama service. Is the Ollama service running?'
-    });
+    await ensureOllamaReachable(endpoint);
+  } catch (error) {
+    return res.status(503).json({ error: error.message });
   }
+
+  console.info('[generate] Forwarding request', summarizeGenerateRequest(normalizedPayload));
+
+  const upstreamController = new AbortController();
+  const releaseClientAbort = bindAbortOnClientDisconnect(req, upstreamController);
+  let stopHeartbeat = () => {};
+  let releaseStreamingGuards = () => {};
 
   try {
     const upstream = await httpFetch(`${endpoint}api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      timeout: 120000, // 2 minute timeout for the actual generation
-      body: JSON.stringify({
-        model,
-        prompt,
-        stream,
-        system,
-        template,
-        options,
-        images
-      })
+      timeout: normalizedPayload.stream ? OLLAMA_STREAM_TIMEOUT_MS : OLLAMA_GENERATION_TIMEOUT_MS,
+      signal: upstreamController.signal,
+      body: JSON.stringify(normalizedPayload)
     });
 
     if (!upstream.ok) {
+      const errorBody = await upstream.text();
       const statusMessage = upstream.status === 404
-        ? `Model '${model}' not found. Please pull the model with 'ollama pull ${model}'`
-        : `Failed to get response from Ollama (status: ${upstream.status})`;
+        ? `Model '${normalizedPayload.model}' not found. Please pull the model with 'ollama pull ${normalizedPayload.model}'`
+        : errorBody || `Failed to get response from Ollama (status: ${upstream.status})`;
       throw new Error(statusMessage);
     }
 
-    // For streaming responses
-    if (stream) {
+    if (normalizedPayload.stream) {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
-        Connection: 'keep-alive'
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no'
       });
       res.flushHeaders?.();
+      releaseStreamingGuards = applyStreamingGuards(req, res, 'api-generate');
+      stopHeartbeat = startSseHeartbeat(res, 'api-generate');
+
+      const upstreamStream = toNodeReadable(upstream.body);
+      if (!upstreamStream) {
+        throw new Error('Ollama did not return a stream body');
+      }
+
+      const emit = (payload) => {
+        res.write(`data: ${JSON.stringify(payload)}\n\n`);
+        res.flush?.();
+      };
 
       let buffer = '';
 
       try {
-        for await (const chunk of upstream.body) {
-          const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
-          buffer += text;
+        for await (const chunk of upstreamStream) {
+          const textChunk = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+          buffer += textChunk;
 
           let boundary;
           while ((boundary = buffer.indexOf('\n')) !== -1) {
@@ -752,61 +1075,69 @@ app.post('/api/generate', async (req, res) => {
 
             if (!line) continue;
 
+            let parsed;
             try {
-              const parsed = JSON.parse(line);
-
-              if (parsed.error) {
-                console.error('Ollama streaming error:', parsed.error);
-                res.write(`data: ${JSON.stringify({ error: parsed.error })}\n\n`);
-                res.flush?.();
-                continue;
-              }
-
-              // Send the parsed data as SSE
-              res.write(`data: ${JSON.stringify(parsed)}\n\n`);
-              res.flush?.();
-
-              if (parsed.done) {
-                break;
-              }
+              parsed = JSON.parse(line);
             } catch (parseError) {
-              // Skip malformed JSON lines
               continue;
+            }
+
+            if (parsed.error) {
+              console.error('Ollama streaming error:', parsed.error);
+              emit({ error: parsed.error });
+              continue;
+            }
+
+            emit(parsed);
+
+            if (parsed.done) {
+              buffer = '';
+              break;
             }
           }
         }
 
-        // Process any remaining buffer content
         if (buffer.trim()) {
           try {
             const parsed = JSON.parse(buffer.trim());
-            res.write(`data: ${JSON.stringify(parsed)}\n\n`);
-            res.flush?.();
-          } catch (parseError) {
-            // Ignore remaining malformed content
+            emit(parsed);
+          } catch {
+            // ignore trailing partial chunk
           }
         }
       } catch (streamError) {
         console.error('Streaming error:', streamError);
-        res.write(`data: ${JSON.stringify({ error: streamError.message })}\n\n`);
-        res.flush?.();
+        emit({ error: streamError.message });
       } finally {
         res.end();
       }
       return;
     }
 
-    // For non-streaming responses
-    const result = await upstream.json();
+    const raw = await upstream.text();
+    let result = {};
+    if (raw) {
+      try {
+        result = JSON.parse(raw);
+      } catch (parseError) {
+        console.error('Failed to parse Ollama response:', parseError);
+        throw new Error('Ollama returned invalid JSON');
+      }
+    }
+
     return res.json(result);
   } catch (error) {
     console.error('Generate API error:', error.message);
     const errorMessage = error.message.includes('ECONNREFUSED') || error.message.includes('connect ETIMEDOUT')
-      ? 'Cannot connect to Ollama service. Is the Ollama service running?'
+      ? OLLAMA_UNAVAILABLE_MESSAGE
       : error.message || 'Failed to reach Ollama';
     return res.status(500).json({
       error: errorMessage
     });
+  } finally {
+    stopHeartbeat?.();
+    releaseStreamingGuards?.();
+    releaseClientAbort?.();
   }
 });
 
@@ -843,33 +1174,27 @@ app.post('/api/chat/stream', async (req, res) => {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
-    Connection: 'keep-alive'
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no'
   });
   res.flushHeaders?.();
 
+  const upstreamController = new AbortController();
+  const releaseClientAbort = bindAbortOnClientDisconnect(req, upstreamController);
+  let stopHeartbeat = () => {};
+  let releaseStreamingGuards = () => {};
+
   try {
+    releaseStreamingGuards = applyStreamingGuards(req, res, 'chat-stream');
+    stopHeartbeat = startSseHeartbeat(res, 'chat-stream');
     const endpoint = withTrailingSlash(endpointToUse);
-
-    // Check if ollama endpoint is reachable before making the request
-    try {
-      // Make a simple test request to see if the endpoint is available
-      const testResponse = await httpFetch(`${endpoint}api/tags`, {
-        method: 'GET',
-        timeout: 10000 // 10 second timeout for connectivity check
-      });
-
-      if (!testResponse.ok) {
-        throw new Error('Cannot connect to Ollama service. Is the Ollama service running?');
-      }
-    } catch (connectivityError) {
-      console.error('Ollama connectivity check failed:', connectivityError.message);
-      throw new Error('Cannot connect to Ollama service. Is the Ollama service running?');
-    }
+    await ensureOllamaReachable(endpoint);
 
     const upstream = await httpFetch(`${endpoint}api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      timeout: 120000, // 2 minute timeout for the generation
+      timeout: OLLAMA_STREAM_TIMEOUT_MS,
+      signal: upstreamController.signal,
       body: JSON.stringify({
         model: modelToUse,
         prompt,
@@ -877,11 +1202,16 @@ app.post('/api/chat/stream', async (req, res) => {
       })
     });
 
-    if (!upstream.ok || !upstream.body) {
+    if (!upstream.ok) {
       const errorMessage = upstream.status === 404
         ? `Model '${modelToUse}' not found. Please pull the model with 'ollama pull ${modelToUse}'`
         : `Failed to stream from Ollama (status: ${upstream.status})`;
       throw new Error(errorMessage);
+    }
+
+    const upstreamStream = toNodeReadable(upstream.body);
+    if (!upstreamStream) {
+      throw new Error('Ollama did not return a stream body');
     }
 
     let buffer = '';
@@ -912,7 +1242,7 @@ app.post('/api/chat/stream', async (req, res) => {
       }
     };
 
-    for await (const chunk of upstream.body) {
+    for await (const chunk of upstreamStream) {
       const text = typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
       buffer += text;
       let newlineIndex;
@@ -961,10 +1291,14 @@ app.post('/api/chat/stream', async (req, res) => {
       res.status(500);
     }
     const errorMessage = error.message.includes('ECONNREFUSED') || error.message.includes('connect ETIMEDOUT')
-      ? 'Cannot connect to Ollama service. Is the Ollama service running?'
+      ? OLLAMA_UNAVAILABLE_MESSAGE
       : error.message || 'Failed to stream response';
     res.write(`data: ${JSON.stringify({ error: errorMessage })}\n\n`);
     res.end();
+  } finally {
+    stopHeartbeat?.();
+    releaseStreamingGuards?.();
+    releaseClientAbort?.();
   }
 });
 
@@ -981,6 +1315,31 @@ app.delete('/api/history', async (req, res) => {
   session.updatedAt = new Date().toISOString();
   await persistSessions();
   return res.json({ sessionId: session.id, history: session.history });
+});
+
+app.post('/api/history/entry', async (req, res) => {
+  const { sessionId = sessionStore.activeSessionId || DEFAULT_SESSION_ID, user, assistant, model, endpoint } =
+    req.body || {};
+  if (!sessionId || !user || !assistant) {
+    return res.status(400).json({ error: 'sessionId, user, and assistant fields are required' });
+  }
+
+  try {
+    const entry = {
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      user,
+      assistant,
+      model: model || 'prompt-concierge',
+      endpoint: endpoint || 'prompt-concierge',
+      sessionId
+    };
+    await pushHistory(sessionId, entry);
+    return res.json({ sessionId, history: ensureSession(sessionId).history });
+  } catch (error) {
+    console.error('Failed to persist custom history entry', error);
+    return res.status(500).json({ error: error.message || 'Unable to persist history entry' });
+  }
 });
 
 app.get('/api/sessions', (req, res) => {
@@ -1037,7 +1396,8 @@ app.delete('/api/sessions/:id', async (req, res) => {
 app.get('/api/settings', (req, res) => {
   return res.json({
     defaults: DEFAULT_SETTINGS,
-    current: runtimeSettings
+    current: runtimeSettings,
+    presets: INSTRUCTION_PRESETS
   });
 });
 
@@ -1105,21 +1465,7 @@ app.post('/api/proxy', async (req, res) => {
 app.get('/api/models', async (req, res) => {
   try {
     const endpoint = withTrailingSlash(runtimeSettings.apiEndpoint);
-
-    // Check if ollama endpoint is reachable before making the request
-    try {
-      const testResponse = await httpFetch(`${endpoint}api/tags`, {
-        method: 'GET',
-        timeout: 10000 // 10 second timeout for connectivity check
-      });
-
-      if (!testResponse.ok) {
-        throw new Error('Cannot connect to Ollama service. Is the Ollama service running?');
-      }
-    } catch (connectivityError) {
-      console.error('Ollama connectivity check failed:', connectivityError.message);
-      return res.status(500).json({ error: 'Cannot connect to Ollama service. Is the Ollama service running?' });
-    }
+    await ensureOllamaReachable(endpoint);
 
     const response = await httpFetch(`${endpoint}api/tags`, {
       timeout: 30000 // 30 second timeout for tags request
@@ -1141,7 +1487,7 @@ app.get('/api/models', async (req, res) => {
   } catch (error) {
     console.error('Error fetching models:', error.message);
     const errorMessage = error.message.includes('ECONNREFUSED') || error.message.includes('connect ETIMEDOUT')
-      ? 'Cannot connect to Ollama service. Is the Ollama service running?'
+      ? OLLAMA_UNAVAILABLE_MESSAGE
       : error.message || 'Unable to fetch models';
     return res.status(500).json({ error: errorMessage });
   }
@@ -1242,7 +1588,7 @@ app.post('/api/sync/data', async (req, res) => {
   try {
     // Update the in-memory stores with the synced data
     if (sessions) {
-      sessionStore.sessions = sessions;
+      sessionStore.sessions = normalizeSessionCollection(sessions);
     }
     if (activeSessionId) {
       sessionStore.activeSessionId = activeSessionId;
@@ -1278,8 +1624,17 @@ app.get(/^(?!\/api).*/, (req, res) => {
   res.sendFile(path.join(__dirnameResolved, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-  console.log('Server started successfully with /api/generate endpoint now available');
-});
+function startServer(port = PORT) {
+  const listener = app.listen(port, () => {
+    console.log(`Server running on http://localhost:${port}`);
+    console.log('Server started successfully with /api/generate endpoint now available');
+  });
+  return listener;
+}
+
+if (require.main === module) {
+  startServer();
+}
+
+module.exports = { app, startServer };
 

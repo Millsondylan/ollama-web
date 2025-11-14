@@ -34,6 +34,16 @@ OLLAMA WEB UI - ENHANCEMENT & BUG FIX SUMMARY
    - Added theme-color meta tag for browser UI theming
    - Updated viewport to support maximum-scale=5, user-scalable=yes
 
+4. 🚀 FIXED: Thinking Stream Abort & SSE Reliability
+   Locations: server.js, public/app.js, scripts/verify.js
+   Highlights:
+   - Added configurable STREAM_HEARTBEAT_INTERVAL_MS with 15s default
+   - Introduced applyStreamingGuards + heartbeat writers on /api/generate and /api/chat/stream
+   - Disabled express socket timeouts for streaming responses and log client aborts
+   - Frontend now cleans up stream readers, classifies AbortErrors, and shows friendlier fallback text
+   - Added SSE verification harness (npm run verify) backed by scripts/mock-ollama, including chat stream coverage + heartbeat assertion
+   - Result: No more 1m59s aborts and “This operation was aborted” messages during live thinking
+
 📱 MOBILE OPTIMIZATIONS:
 ========================
 ✓ Full-width responsive layout
