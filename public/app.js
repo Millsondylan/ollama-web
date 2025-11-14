@@ -15,6 +15,8 @@ const STORAGE_KEYS = {
   activeSession: 'ollama-web-active-session'
 };
 
+const THINKING_PREF_KEY = STORAGE_KEYS.thinking;
+
 const FALLBACK_BASE_URL = window.location.origin + '/';
 
 // Default navigation stack. Additional HTML pages can be appended at runtime via the Custom Pages form.
@@ -592,7 +594,8 @@ function attachChatHandlers() {
     }
 
     try {
-      const session = state.sessions.find((item) => item.id === state.activeSessionId);
+      const sessionsArray = Array.isArray(state.sessions) ? state.sessions : [];
+      const session = sessionsArray.find((item) => item.id === state.activeSessionId);
       const sessionInstructions = session?.instructions?.trim();
       const instructionsToUse =
         sessionInstructions && sessionInstructions.length
@@ -823,7 +826,8 @@ async function setActiveSession(sessionId, options = {}) {
 function updateSessionInstructionsPreview() {
   const previewEl = document.getElementById('session-instructions-preview');
   if (!previewEl) return;
-  const session = state.sessions.find((item) => item.id === state.activeSessionId);
+  const sessionsArray = Array.isArray(state.sessions) ? state.sessions : [];
+  const session = sessionsArray.find((item) => item.id === state.activeSessionId);
   if (!session) {
     previewEl.textContent = '';
     return;
