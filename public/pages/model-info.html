@@ -1,0 +1,34 @@
+<section class="panel">
+  <h2>Model Information</h2>
+  <p>
+    This page is loaded from <code>/pages/model-info.html</code>. Create additional HTML files
+    inside <code>public/pages</code> and register them from the Settings → Custom Pages form.
+  </p>
+  <ul>
+    <li><strong>Current model:</strong> <span id="model-info-name">unknown</span></li>
+    <li><strong>Default endpoint:</strong> <span id="model-info-endpoint">unknown</span></li>
+  </ul>
+  <p>
+    Because this markup is static, you can sprinkle inline scripts or data attributes to integrate
+    with the main UI. The script below illustrates how to read runtime settings made available via
+    <code>window.appState</code>.
+  </p>
+  <pre>
+window.addEventListener('ollama-settings', (event) => {
+  console.log('settings updated', event.detail);
+});
+  </pre>
+</section>
+<script>
+  (function hydrateModelInfo() {
+    if (!window.appState || !window.appState.settings) return;
+    document.getElementById('model-info-name').textContent = window.appState.settings.model;
+    document.getElementById('model-info-endpoint').textContent =
+      window.appState.settings.apiEndpoint;
+  })();
+  window.addEventListener('ollama-settings', (event) => {
+    document.getElementById('model-info-name').textContent = event.detail.model;
+    document.getElementById('model-info-endpoint').textContent = event.detail.apiEndpoint;
+  });
+</script>
+

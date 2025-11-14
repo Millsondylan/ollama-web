@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ollama Web Console</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <h1>Ollama</h1>
+        <p>Chat locally, scale globally. Powered by Qwen.</p>
+      </div>
+      <div class="status-badges">
+        <span id="connection-status" class="badge">offline</span>
+        <span id="active-model" class="badge badge-muted">model: —</span>
+      </div>
+    </header>
+
+    <nav class="app-nav" id="page-nav"></nav>
+
+    <main id="page-root" class="page-root">
+      <!-- Pages get rendered here -->
+    </main>
+
+    <template id="chat-page">
+      <section class="panel">
+        <div class="panel-header panel-header-stacked">
+          <div class="panel-title">
+            <h2>Chat</h2>
+            <p id="session-instructions-preview" class="muted small-text"></p>
+          </div>
+          <div class="panel-actions">
+            <label class="session-select">
+              <span>Session</span>
+              <select id="session-selector"></select>
+            </label>
+            <button id="refresh-history" class="ghost-btn">Refresh history</button>
+            <button id="clear-history" class="ghost-btn">Clear history</button>
+          </div>
+        </div>
+        <div id="chat-history" class="chat-history"></div>
+        <div class="composer">
+          <textarea
+            id="chat-input"
+            rows="3"
+            placeholder="Ask anything..."
+            aria-label="Prompt"
+          ></textarea>
+          <div class="composer-actions">
+            <button id="send-btn">Send</button>
+            <div id="thinking-indicator" class="spinner" aria-hidden="true">
+              <span></span><span></span><span></span>
+            </div>
+          </div>
+        </div>
+        <p id="chat-error" class="error-text" role="alert"></p>
+      </section>
+    </template>
+
+    <template id="settings-page">
+      <section class="panel">
+        <h2>Settings & Custom Instructions</h2>
+        <form id="settings-form" class="settings-form">
+          <label>
+            Model name
+            <input type="text" name="model" required />
+          </label>
+          <label>
+            Ollama endpoint (OLLAMA_HOST)
+            <input type="url" name="apiEndpoint" placeholder="http://127.0.0.1:11434" />
+          </label>
+          <label>
+            Backend base URL (for this UI)
+            <input type="url" name="backendBaseUrl" placeholder="http://localhost:3000/" />
+          </label>
+          <label>
+            Theme
+            <select name="theme">
+              <option value="system">System</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
+          <label>
+            Messages to include per prompt
+            <input type="number" min="1" name="maxHistory" />
+          </label>
+          <label>
+            System instructions
+            <textarea name="systemInstructions" rows="4"></textarea>
+          </label>
+          <button type="submit">Save settings</button>
+        </form>
+      </section>
+
+      <section class="panel">
+        <h3>Custom Pages</h3>
+        <p>Register extra pages by providing a label and a relative or absolute URL.</p>
+        <form id="custom-page-form" class="custom-page-form">
+          <label>
+            Page label
+            <input type="text" name="label" placeholder="Docs" required />
+          </label>
+          <label>
+            Page URL
+            <input type="text" name="url" placeholder="/pages/docs.html" required />
+          </label>
+          <button type="submit">Add page</button>
+        </form>
+        <ul id="custom-page-list" class="custom-page-list"></ul>
+      </section>
+
+      <section class="panel">
+        <h3>Custom API Endpoint</h3>
+        <p>Forward ad-hoc JSON payloads through the backend proxy.</p>
+        <form id="proxy-form" class="settings-form">
+          <label>
+            Target URL
+            <input type="text" name="url" placeholder="http://localhost:11434/api/tags" required />
+          </label>
+          <label>
+            Method
+            <select name="method">
+              <option value="GET">GET</option>
+              <option value="POST">POST</option>
+            </select>
+          </label>
+          <label>
+            JSON payload (optional)
+            <textarea name="payload" rows="3" placeholder='{"hello":"world"}'></textarea>
+          </label>
+          <button type="submit">Send request</button>
+        </form>
+        <pre id="proxy-response" class="panel proxy-response"></pre>
+      </section>
+    </template>
+
+    <template id="history-page">
+      <section class="panel">
+        <div class="panel-header panel-header-stacked">
+          <h2>Server History</h2>
+          <label class="session-select">
+            <span>Session</span>
+            <select id="history-session-select"></select>
+          </label>
+        </div>
+        <div id="server-history"></div>
+      </section>
+      <section class="panel">
+        <h2>Local History</h2>
+        <div id="local-history"></div>
+      </section>
+    </template>
+
+    <template id="sessions-page">
+      <section class="panel">
+        <div class="panel-header panel-header-stacked">
+          <h2>Saved Sessions</h2>
+          <p class="muted small-text">Customize instructions, attach files, and switch contexts quickly.</p>
+        </div>
+        <div id="session-list" class="session-list"></div>
+      </section>
+      <section class="panel">
+        <h2 id="session-form-title">Create Session</h2>
+        <form id="session-form" class="settings-form">
+          <input type="hidden" name="sessionId" />
+          <label>
+            Session name
+            <input type="text" name="name" placeholder="My Workspace" required />
+          </label>
+          <label>
+            Custom instructions
+            <textarea name="instructions" rows="4" placeholder="How should the assistant behave?"></textarea>
+          </label>
+          <label>
+            Additional context (text)
+            <textarea name="attachmentText" rows="4" placeholder="Paste notes or requirements..."></textarea>
+          </label>
+          <label>
+            Attach files (text-based)
+            <input type="file" id="session-files" name="files" multiple accept=".txt,.md,.mdx,.json,.csv,.log,.yaml,.yml,.xml,.html,.js,.ts,.py" />
+            <span class="muted small-text">Existing attachments remain unless you upload new files or text.</span>
+          </label>
+          <div class="form-actions">
+            <button type="submit" id="session-form-submit">Save session</button>
+            <button type="button" id="session-form-cancel" class="ghost-btn">Reset</button>
+          </div>
+        </form>
+      </section>
+    </template>
+
+    <template id="api-page">
+      <section class="panel">
+        <div class="panel-header panel-header-stacked">
+          <h2>API Access</h2>
+          <p class="muted small-text">Call the backend from your own tools using a generated key.</p>
+        </div>
+        <div class="api-base-url">
+          <div>
+            <p class="muted small-text">Base URL</p>
+            <code id="api-base-url"></code>
+          </div>
+          <button id="copy-base-url" class="ghost-btn">Copy</button>
+        </div>
+        <pre id="api-sample" class="code-block"></pre>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header panel-header-stacked">
+          <h3>API Keys</h3>
+          <p class="muted small-text">Keys authenticate requests sent with `Authorization: Bearer &lt;key&gt;`.</p>
+        </div>
+        <div class="callout" id="api-key-secret"></div>
+        <form id="api-key-form" class="inline-form">
+          <input type="text" name="name" placeholder="Key label (optional)" />
+          <button type="submit">Generate key</button>
+        </form>
+        <div id="api-key-empty" class="muted small-text">No keys yet.</div>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Created</th>
+                <th>Last used</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="api-key-list"></tbody>
+          </table>
+        </div>
+      </section>
+    </template>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
+
