@@ -732,31 +732,64 @@ app.post('/api/generate', async (req, res) => {
     // For streaming responses
     if (stream) {
       res.writeHead(200, {
-        'Content-Type': 'text/plain; charset=utf-8', // Correct content type for streaming
+        'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-        'Transfer-Encoding': 'chunked'
+        Connection: 'keep-alive'
       });
+      res.flushHeaders?.();
 
-      // Pipe the upstream response directly to the client
-      const reader = upstream.body.getReader();
-      const decoder = new TextDecoder();
+      let buffer = '';
 
       try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
+        for await (const chunk of upstream.body) {
+          const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+          buffer += text;
 
-          const chunk = decoder.decode(value, { stream: true });
-          res.write(chunk);
+          let boundary;
+          while ((boundary = buffer.indexOf('\n')) !== -1) {
+            const line = buffer.slice(0, boundary).trim();
+            buffer = buffer.slice(boundary + 1);
 
-          // For SSE, we might need to send newlines to ensure the client receives updates
-          if (chunk.includes('\n')) {
+            if (!line) continue;
+
+            try {
+              const parsed = JSON.parse(line);
+
+              if (parsed.error) {
+                console.error('Ollama streaming error:', parsed.error);
+                res.write(`data: ${JSON.stringify({ error: parsed.error })}\n\n`);
+                res.flush?.();
+                continue;
+              }
+
+              // Send the parsed data as SSE
+              res.write(`data: ${JSON.stringify(parsed)}\n\n`);
+              res.flush?.();
+
+              if (parsed.done) {
+                break;
+              }
+            } catch (parseError) {
+              // Skip malformed JSON lines
+              continue;
+            }
+          }
+        }
+
+        // Process any remaining buffer content
+        if (buffer.trim()) {
+          try {
+            const parsed = JSON.parse(buffer.trim());
+            res.write(`data: ${JSON.stringify(parsed)}\n\n`);
             res.flush?.();
+          } catch (parseError) {
+            // Ignore remaining malformed content
           }
         }
       } catch (streamError) {
         console.error('Streaming error:', streamError);
+        res.write(`data: ${JSON.stringify({ error: streamError.message })}\n\n`);
+        res.flush?.();
       } finally {
         res.end();
       }
