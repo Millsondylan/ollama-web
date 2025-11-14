@@ -30,14 +30,23 @@
           <div class="panel-title">
             <h2>Chat</h2>
             <p id="session-instructions-preview" class="muted small-text"></p>
+            <p id="thinking-status" class="thinking-status small-text"></p>
           </div>
           <div class="panel-actions">
             <label class="session-select">
               <span>Session</span>
               <select id="session-selector"></select>
             </label>
-            <button id="refresh-history" class="ghost-btn">Refresh history</button>
-            <button id="clear-history" class="ghost-btn">Clear history</button>
+            <label class="model-select">
+              <span>Model</span>
+              <select id="model-selector"></select>
+            </label>
+            <label class="thinking-toggle">
+              <input type="checkbox" id="thinking-toggle" />
+              <span>Enable Thinking</span>
+            </label>
+            <button id="refresh-history" class="ghost-btn">Refresh</button>
+            <button id="clear-history" class="ghost-btn">Clear</button>
           </div>
         </div>
         <div id="chat-history" class="chat-history"></div>

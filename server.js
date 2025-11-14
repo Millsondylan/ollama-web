@@ -560,6 +560,138 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+app.post('/api/chat/stream', async (req, res) => {
+  const { message, model, instructions, apiEndpoint, includeHistory, sessionId } = req.body || {};
+
+  if (!message) {
+    return res.status(400).json({ error: 'Message is required' });
+  }
+
+  const selectedSessionId = sessionId || sessionStore.activeSessionId || DEFAULT_SESSION_ID;
+  const session = ensureSession(selectedSessionId);
+  sessionStore.activeSessionId = session.id;
+
+  const modelToUse = model || runtimeSettings.model;
+  const endpointToUse = apiEndpoint || runtimeSettings.apiEndpoint;
+  const systemPrompt = instructions || session.instructions || runtimeSettings.systemInstructions;
+  const attachmentContext = session.attachments
+    .map((att) => `Attachment (${att.name || att.id}):\n${att.content}`)
+    .join('\n\n');
+  const combinedInstructions = [systemPrompt, attachmentContext].filter(Boolean).join('\n\n');
+  const contextLimit =
+    includeHistory === false
+      ? 0
+      : Math.max(Number(runtimeSettings.maxHistory) || session.history.length || 0, 0);
+  const contextSlice =
+    includeHistory === false || !contextLimit
+      ? []
+      : session.history.slice(-1 * contextLimit);
+
+  const prompt = buildPrompt(message, combinedInstructions, contextSlice);
+  const startedAt = Date.now();
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive'
+  });
+  res.flushHeaders?.();
+
+  try {
+    const endpoint = withTrailingSlash(endpointToUse);
+    const upstream = await httpFetch(`${endpoint}api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: modelToUse,
+        prompt,
+        stream: true
+      })
+    });
+
+    if (!upstream.ok || !upstream.body) {
+      throw new Error('Failed to stream from Ollama');
+    }
+
+    let buffer = '';
+    let aggregate = '';
+    let doneStreaming = false;
+
+    const handleLine = (line) => {
+      if (!line) {
+        return;
+      }
+      let parsed;
+      try {
+        parsed = JSON.parse(line);
+      } catch (error) {
+        return;
+      }
+      if (parsed.response) {
+        aggregate += parsed.response;
+        res.write(`data: ${JSON.stringify({ token: parsed.response })}\n\n`);
+        res.flush?.();
+      }
+      if (parsed.error) {
+        throw new Error(parsed.error);
+      }
+      if (parsed.done) {
+        doneStreaming = true;
+      }
+    };
+
+    for await (const chunk of upstream.body) {
+      const text = typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
+      buffer += text;
+      let newlineIndex;
+      while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, newlineIndex).trim();
+        buffer = buffer.slice(newlineIndex + 1);
+        handleLine(line);
+      }
+      if (doneStreaming) {
+        break;
+      }
+    }
+
+    if (!doneStreaming && buffer.trim()) {
+      handleLine(buffer.trim());
+    }
+
+    if (!doneStreaming) {
+      throw new Error('Stream ended unexpectedly');
+    }
+
+    const entry = {
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      user: message,
+      assistant: aggregate,
+      model: modelToUse,
+      endpoint: endpointToUse,
+      sessionId: session.id
+    };
+
+    await pushHistory(session.id, entry);
+
+    res.write(
+      `data: ${JSON.stringify({
+        done: true,
+        response: aggregate,
+        history: ensureSession(session.id).history,
+        durationMs: Date.now() - startedAt
+      })}\n\n`
+    );
+    res.end();
+  } catch (error) {
+    if (!res.headersSent) {
+      res.status(500);
+    }
+    res.write(`data: ${JSON.stringify({ error: error.message || 'Failed to stream response' })}\n\n`);
+    res.end();
+  }
+});
+
 app.get('/api/history', (req, res) => {
   const sessionId = req.query.sessionId || sessionStore.activeSessionId || DEFAULT_SESSION_ID;
   const session = ensureSession(sessionId);
@@ -690,6 +822,26 @@ app.post('/api/proxy', async (req, res) => {
     return res.send(data);
   } catch (error) {
     return res.status(500).json({ error: error.message || 'Proxy request failed' });
+  }
+});
+
+app.get('/api/models', async (req, res) => {
+  try {
+    const endpoint = withTrailingSlash(runtimeSettings.apiEndpoint);
+    const response = await httpFetch(`${endpoint}api/tags`);
+    if (!response.ok) {
+      return res.status(500).json({ error: 'Failed to fetch models from Ollama' });
+    }
+    const data = await response.json();
+    const models = (data.models || []).map((model) => ({
+      name: model.name,
+      size: model.size,
+      digest: model.digest,
+      modifiedAt: model.modified_at
+    }));
+    return res.json({ models });
+  } catch (error) {
+    return res.status(500).json({ error: error.message || 'Unable to fetch models' });
   }
 });
 

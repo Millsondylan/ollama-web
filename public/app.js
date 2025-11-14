@@ -14,6 +14,7 @@ const STORAGE_KEYS = {
 };
 
 const FALLBACK_BASE_URL = window.location.origin + '/';
+const THINKING_PREF_KEY = 'ollama-thinking-enabled';
 
 // Default navigation stack. Additional HTML pages can be appended at runtime via the Custom Pages form.
 const defaultPages = [
@@ -39,7 +40,9 @@ const state = {
   historySessionId: null,
   editingSessionId: null,
   apiKeys: [],
-  lastGeneratedSecret: null
+  lastGeneratedSecret: null,
+  availableModels: [],
+  thinkingEnabled: loadThinkingPreference()
 };
 
 window.appState = state;
@@ -56,6 +59,7 @@ init();
 async function init() {
   await bootstrapSettings();
   await loadSessions();
+  await loadAvailableModels();
   if (!state.activeSessionId && state.sessions.length) {
     state.activeSessionId = state.sessions[0].id;
   }
@@ -132,6 +136,20 @@ async function loadSessions() {
     if (!state.activeSessionId) {
       state.activeSessionId = 'default';
     }
+  }
+}
+
+async function loadAvailableModels() {
+  try {
+    const data = await fetchJson('/api/models');
+    state.availableModels = data.models || [];
+    if (document.getElementById('model-selector')) {
+      renderModelSelector();
+      updateThinkingStatus();
+    }
+  } catch (error) {
+    console.warn('Failed to load available models', error);
+    state.availableModels = [];
   }
 }
 
@@ -486,10 +504,32 @@ function attachChatHandlers() {
   const clearBtn = document.getElementById('clear-history');
   const errorEl = document.getElementById('chat-error');
   const instructionsPreview = document.getElementById('session-instructions-preview');
+  const modelSelector = document.getElementById('model-selector');
+  const thinkingToggle = document.getElementById('thinking-toggle');
 
   renderChatMessages();
   renderSessionSelector();
+  renderModelSelector();
   updateSessionInstructionsPreview();
+  updateThinkingStatus();
+
+  if (modelSelector) {
+    modelSelector.addEventListener('change', (event) => {
+      state.settings.model = event.target.value;
+      persistClientSettings();
+      elements.activeModel.textContent = `model: ${state.settings.model || '—'}`;
+      updateThinkingStatus();
+    });
+  }
+
+  if (thinkingToggle) {
+    thinkingToggle.checked = state.thinkingEnabled;
+    thinkingToggle.addEventListener('change', (event) => {
+      state.thinkingEnabled = event.target.checked;
+      persistThinkingPreference(state.thinkingEnabled);
+      updateThinkingStatus();
+    });
+  }
 
   sendBtn.addEventListener('click', () => sendMessage());
   input.addEventListener('keydown', (event) => {
@@ -535,6 +575,8 @@ function attachChatHandlers() {
     setThinking(true);
     const liveUser = appendLiveUserMessage(message);
     const liveThinking = appendThinkingMessage();
+    const effectiveModel = resolveModelForRequest();
+    updateThinkingStatus(effectiveModel);
 
     try {
       const session = state.sessions.find((item) => item.id === state.activeSessionId);
@@ -546,11 +588,17 @@ function attachChatHandlers() {
 
       const payload = {
         message,
-        model: state.settings?.model,
+        model: effectiveModel,
         instructions: instructionsToUse,
         apiEndpoint: state.settings?.apiEndpoint,
-        sessionId: state.activeSessionId
+        sessionId: state.activeSessionId,
+        thinkingEnabled: state.thinkingEnabled
       };
+
+      if (state.thinkingEnabled) {
+        await sendThinkingStream(payload, liveThinking, liveUser);
+        return;
+      }
 
       const data = await fetchJson('/api/chat', {
         method: 'POST',
@@ -581,6 +629,82 @@ function attachChatHandlers() {
       setThinking(false);
     }
   }
+
+  async function sendThinkingStream(payload, liveThinking, liveUser) {
+    const response = await fetch('/api/chat/stream', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok || !response.body) {
+      throw new Error('Unable to start thinking mode');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let aggregated = '';
+
+    const processEvent = (rawEvent) => {
+      if (!rawEvent) return;
+      const lines = rawEvent.split('\n');
+      const dataLine = lines.find((line) => line.startsWith('data:'));
+      if (!dataLine) return;
+      const payloadStr = dataLine.replace(/^data:\s*/, '');
+      if (!payloadStr) return;
+      try {
+        const chunk = JSON.parse(payloadStr);
+        if (chunk.token) {
+          aggregated += chunk.token;
+          updateThinkingEntry(liveThinking, aggregated);
+        }
+        if (chunk.error) {
+          throw new Error(chunk.error);
+        }
+        if (chunk.done) {
+          state.sessionHistories[state.activeSessionId] = chunk.history || [];
+          state.chat = state.sessionHistories[state.activeSessionId];
+          state.localHistory[state.activeSessionId] = chunk.history || [];
+          persistLocalHistory();
+          clearLiveEntries();
+          renderChatMessages();
+          renderHistoryPage();
+          return true;
+        }
+      } catch (error) {
+        throw new Error(error.message || 'Unable to parse stream');
+      }
+      return false;
+    };
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let boundary;
+      while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+        const rawEvent = buffer.slice(0, boundary).trim();
+        buffer = buffer.slice(boundary + 2);
+        if (!rawEvent) continue;
+        const finished = processEvent(rawEvent);
+        if (finished) {
+          return;
+        }
+      }
+    }
+
+    if (buffer.trim()) {
+      const finished = processEvent(buffer.trim());
+      if (finished) {
+        return;
+      }
+    }
+
+    throw new Error('Thinking stream ended unexpectedly');
+  }
 }
 
 function renderSessionSelector() {
@@ -590,6 +714,51 @@ function renderSessionSelector() {
   select.onchange = async (event) => {
     await setActiveSession(event.target.value);
   };
+}
+
+function renderModelSelector() {
+  const select = document.getElementById('model-selector');
+  if (!select) return;
+  
+  select.innerHTML = '';
+  select.disabled = !state.availableModels.length;
+  if (!state.availableModels.length) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'No models available';
+    option.disabled = true;
+    select.appendChild(option);
+    return;
+  }
+
+  state.availableModels.forEach((model) => {
+    const option = document.createElement('option');
+    option.value = model.name;
+    const sizeGb = (model.size / (1024 * 1024 * 1024)).toFixed(1);
+    option.textContent = `${model.name} (${sizeGb} GB)`;
+    if (model.name === state.settings?.model) {
+      option.selected = true;
+    }
+    select.appendChild(option);
+  });
+}
+
+function resolveModelForRequest() {
+  const baseModel = state.settings?.model;
+  if (!state.thinkingEnabled || !baseModel) {
+    return baseModel;
+  }
+  const normalizedBase = baseModel.toLowerCase();
+  const thinkingCandidate = state.availableModels.find((model) => {
+    const normalized = model.name.toLowerCase();
+    return (
+      normalized.includes('thinking') &&
+      (normalized === normalizedBase ||
+        normalized.startsWith(`${normalizedBase} `) ||
+        normalizedBase.startsWith(normalized.replace(' thinking', '')))
+    );
+  });
+  return thinkingCandidate ? thinkingCandidate.name : baseModel;
 }
 
 // Change the active session locally and on the server so prompts + history stay scoped.
@@ -642,6 +811,24 @@ function updateSessionInstructionsPreview() {
     ? session.instructions.trim().slice(0, 140) + (session.instructions.length > 140 ? '…' : '')
     : 'No custom instructions';
   previewEl.textContent = `${previewText} • ${attachmentsCount} attachment${attachmentsCount === 1 ? '' : 's'}`;
+}
+
+function updateThinkingStatus(effectiveModel = resolveModelForRequest()) {
+  const status = document.getElementById('thinking-status');
+  if (!status) return;
+  if (!state.thinkingEnabled) {
+    status.classList.remove('active');
+    status.textContent = 'Thinking mode off';
+    return;
+  }
+  status.classList.add('active');
+  if (effectiveModel && effectiveModel !== state.settings?.model) {
+    status.textContent = `Thinking with ${effectiveModel}`;
+  } else if (effectiveModel) {
+    status.textContent = `Thinking with ${effectiveModel} (live stream)`;
+  } else {
+    status.textContent = 'Thinking enabled (no model selected)';
+  }
 }
 
 function renderChatMessages() {
@@ -719,6 +906,18 @@ function appendThinkingMessage() {
   return article;
 }
 
+function updateThinkingEntry(entry, text) {
+  if (!entry) return;
+  const dots = entry.querySelector('.typing-dots');
+  if (dots) {
+    dots.style.display = text ? 'none' : 'inline-flex';
+  }
+  const thinkingText = entry.querySelector('.thinking-text');
+  if (thinkingText) {
+    thinkingText.textContent = text || 'Thinking…';
+  }
+}
+
 function attachSettingsHandlers() {
   const form = document.getElementById('settings-form');
   const customPageForm = document.getElementById('custom-page-form');
@@ -755,6 +954,8 @@ function attachSettingsHandlers() {
       persistClientSettings();
       notifySettingsSubscribers();
       elements.activeModel.textContent = `model: ${state.settings.model}`;
+      await loadAvailableModels();
+      renderModelSelector();
     } catch (error) {
       console.error('Failed to save settings', error);
     }
@@ -1102,6 +1303,23 @@ function loadActiveSessionPreference() {
     return localStorage.getItem('ollama-active-session');
   } catch (_) {
     return null;
+  }
+}
+
+function persistThinkingPreference(value) {
+  try {
+    localStorage.setItem(THINKING_PREF_KEY, JSON.stringify(Boolean(value)));
+  } catch (_) {
+    // ignore
+  }
+}
+
+function loadThinkingPreference() {
+  try {
+    const raw = localStorage.getItem(THINKING_PREF_KEY);
+    return raw ? JSON.parse(raw) === true : false;
+  } catch (_) {
+    return false;
   }
 }
 
