@@ -432,10 +432,39 @@ button:disabled {
   gap: 1rem;
 }
 
+.chat-title-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
 .chat-header-left h2 {
   margin: 0;
   font-size: 1.25rem;
   font-weight: 600;
+  line-height: 1.2;
+}
+
+.preset-indicator {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.preset-indicator::before {
+  content: '●';
+  font-size: 0.5rem;
+  color: var(--primary);
+}
+
+.preset-indicator.ai-coder::before {
+  color: var(--success);
+}
+
+.preset-indicator.custom::before {
+  color: var(--warning);
 }
 
 .sidebar-toggle-mobile {
