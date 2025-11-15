@@ -2253,6 +2253,67 @@ label {
     font-size: var(--text-sm);
   }
 
+  /* Mobile-optimized message bubbles */
+  .message-bubble-user,
+  .message-bubble-assistant {
+    padding: var(--space-3) var(--space-3);
+    gap: var(--space-2);
+  }
+
+  .message-avatar {
+    width: 32px;
+    height: 32px;
+    font-size: var(--text-md);
+  }
+
+  .conversation-group {
+    padding: var(--space-3);
+    gap: var(--space-3);
+  }
+
+  .message-header {
+    gap: var(--space-1);
+    margin-bottom: var(--space-1);
+  }
+
+  .message-sender {
+    font-size: var(--text-xs);
+  }
+
+  .message-timestamp {
+    font-size: 0.65rem;
+  }
+
+  /* Thinking section on mobile */
+  .thinking-section {
+    margin: var(--space-2) 0;
+    padding: var(--space-2);
+    border-radius: var(--radius-lg);
+  }
+
+  .thinking-header {
+    padding: var(--space-2);
+  }
+
+  .thinking-icon {
+    width: 16px;
+    height: 16px;
+  }
+
+  .thinking-label {
+    font-size: var(--text-xs);
+  }
+
+  .thinking-word-count {
+    font-size: 0.65rem;
+  }
+
+  .thinking-content {
+    max-height: 250px;
+    font-size: var(--text-xs);
+    padding: var(--space-2);
+  }
+
   .composer-footer {
     flex-direction: column;
     align-items: flex-start;
@@ -2261,6 +2322,73 @@ label {
 
   .send-shortcut {
     display: none;
+  }
+
+  /* Composer area mobile optimization */
+  .composer-ultra {
+    padding: var(--space-3) var(--space-2);
+    bottom: 0;
+  }
+
+  .composer-container-ultra {
+    gap: var(--space-2);
+  }
+
+  .input-ultra {
+    font-size: 16px;
+    padding: var(--space-3) var(--space-3);
+    border-radius: var(--radius-lg);
+    min-height: 44px;
+  }
+
+  .send-btn-ultra {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+  }
+
+  .send-icon {
+    width: 18px;
+    height: 18px;
+  }
+
+  /* Sidebar mobile */
+  .sidebar-ultra {
+    width: 100%;
+    max-width: 280px;
+  }
+
+  .sidebar-header-ultra {
+    padding: var(--space-3);
+  }
+
+  .logo-ultra {
+    font-size: var(--text-lg);
+  }
+
+  .sidebar-btn-ultra {
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--text-sm);
+  }
+
+  /* Settings modal mobile */
+  .modal-ultra {
+    padding: var(--space-3);
+  }
+
+  .modal-content-ultra {
+    max-height: 90vh;
+    border-radius: var(--radius-lg);
+  }
+
+  .modal-body-ultra {
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+
+  /* Character counter mobile */
+  .char-count-ultra {
+    font-size: 0.75rem;
   }
 }
 

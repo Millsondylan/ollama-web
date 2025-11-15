@@ -1906,7 +1906,7 @@ function renderChatMessages() {
       if (entry.thinking) {
         const wordCount = entry.thinking.split(/\s+/).length;
         const thinkingSection = document.createElement('div');
-        thinkingSection.className = 'thinking-section collapsed';
+        thinkingSection.className = 'thinking-section';
         thinkingSection.innerHTML = `
           <div class="thinking-header" onclick="this.parentElement.classList.toggle('collapsed')">
             <div class="thinking-header-left">
