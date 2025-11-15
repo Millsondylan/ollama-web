@@ -3011,12 +3011,29 @@ function enhanceAICoderPrompt(userMessage) {
   const codingKeywords = /\b(fix|add|create|implement|build|develop|make|update|modify|change|refactor|optimize|improve|debug|test|write|code|script|function|feature|bug|issue|error|component|api|endpoint|database|query|style|css|html|javascript|react|vue|python|node|express)\b/i;
   const isCodingTask = codingKeywords.test(spellChecked);
 
-  // Step 4: Autonomous enhancement for coding tasks
+  // Step 4: Generate structured prompt for coding tasks
   if (isCodingTask) {
     const enhanced = `${spellChecked}
 
-Code first, explain after. Find files → understand code → implement solution → test → report.`;
-    console.log('[AI CODER] Enhanced coding task:', enhanced);
+Please structure this as a prompt for an AI coder:
+
+DISCOVERY (what to find/understand):
+- Relevant files
+- Current implementation
+- Dependencies
+
+IMPLEMENTATION (what to build):
+- Specific changes needed
+- Full solution required
+- No placeholders
+
+TESTING (how to verify):
+- Test cases
+- Expected behavior
+- Error handling
+
+Then add rules: work first, ask never, complete end-to-end, test it, report results.`;
+    console.log('[AI CODER] Enhanced prompt for coding task:', enhanced);
     return enhanced;
   }
 
