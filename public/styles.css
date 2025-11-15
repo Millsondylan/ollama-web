@@ -1384,11 +1384,15 @@ button:focus-visible {
 
 .conversation-group {
   width: 100%;
-  max-width: 768px;
-  margin: 0 auto var(--space-6);
+  max-width: 800px;
+  margin: 0 auto var(--space-8);
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-5);
+  padding: var(--space-4);
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xs);
 }
 
 /* User Message - Right Aligned with Avatar */
@@ -1396,10 +1400,17 @@ button:focus-visible {
   display: flex;
   gap: var(--space-3);
   align-items: flex-start;
-  padding: var(--space-4);
-  border-radius: var(--radius-lg);
-  background: var(--message-user-bg);
+  padding: var(--space-5) var(--space-4);
+  border-radius: var(--radius-xl);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  box-shadow: var(--shadow-md);
   animation: slideIn 0.3s ease-out;
+}
+
+.message-bubble-user .message-sender,
+.message-bubble-user .message-timestamp,
+.message-bubble-user .message-text {
+  color: white !important;
 }
 
 @keyframes slideIn {
@@ -1458,11 +1469,13 @@ button:focus-visible {
 }
 
 .message-text {
-  font-size: var(--text-base);
-  line-height: var(--leading-relaxed);
+  font-size: 1.05rem;
+  line-height: 1.75;
   color: var(--text-primary);
   word-wrap: break-word;
   overflow-wrap: break-word;
+  font-weight: 400;
+  letter-spacing: 0.01em;
 }
 
 /* Assistant Message - Full Width with Clean Layout */
@@ -1470,7 +1483,11 @@ button:focus-visible {
   display: flex;
   gap: var(--space-3);
   align-items: flex-start;
-  padding: var(--space-4) 0;
+  padding: var(--space-5) var(--space-4);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-xl);
+  border-left: 4px solid #10a37f;
+  box-shadow: var(--shadow-sm);
   animation: slideIn 0.3s ease-out;
 }
 
@@ -1523,17 +1540,19 @@ button:focus-visible {
    ================================ */
 
 .thinking-section {
-  background: var(--artifact-bg);
-  border: 1px solid var(--artifact-border);
-  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  border: 2px solid #667eea;
+  border-radius: var(--radius-xl);
   overflow: hidden;
-  margin-top: var(--space-2);
+  margin-top: var(--space-4);
+  box-shadow: var(--shadow-md);
   transition: all var(--transition-base);
 }
 
 .thinking-section:hover {
-  border-color: var(--border-medium);
-  box-shadow: var(--shadow-sm);
+  border-color: #764ba2;
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-2px);
 }
 
 .thinking-header {
