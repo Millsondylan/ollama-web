@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Ollama Web - Diagnostics</title>
+  <style>
+    body {
+      font-family: monospace;
+      padding: 2rem;
+      background: #1a1a1a;
+      color: #fff;
+    }
+    .test { margin: 1rem 0; padding: 1rem; background: #2a2a2a; border-radius: 0.5rem; }
+    .pass { border-left: 4px solid #10b981; }
+    .fail { border-left: 4px solid #ef4444; }
+    button { padding: 0.75rem 1.5rem; margin: 0.5rem; background: #3b82f6; color: white; border: none; border-radius: 0.5rem; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>Ollama Web Diagnostics</h1>
+  <div id="results"></div>
+  <button onclick="runTests()">Run All Tests</button>
+  <button onclick="clearAndReload()">Clear Cache & Reload</button>
+  <button onclick="window.location.href='/'">Go to App</button>
+
+  <script>
+    function runTests() {
+      const results = [];
+      const div = document.getElementById('results');
+      div.innerHTML = '';
+
+      // Test 1: Server connection
+      fetch('/api/settings')
+        .then(r => r.json())
+        .then(data => {
+          addResult('✓ Server Connected', `Model: ${data.current.model}`, 'pass');
+          addResult('AI Coder Mode', `Enabled: ${data.current.aiCoderEnabled !== false}`, data.current.aiCoderEnabled !== false ? 'pass' : 'fail');
+        })
+        .catch(e => addResult('✗ Server Failed', e.message, 'fail'));
+
+      // Test 2: LocalStorage
+      const ls = localStorage.getItem('ollama-web-client-settings');
+      if (ls) {
+        const settings = JSON.parse(ls);
+        addResult('✓ LocalStorage', JSON.stringify(settings, null, 2), 'pass');
+      } else {
+        addResult('⚠ LocalStorage Empty', 'No saved settings', 'fail');
+      }
+
+      // Test 3: CSS Version
+      const link = document.querySelector('link[href*="styles.css"]');
+      if (link) {
+        addResult('✓ CSS Link', link.href, 'pass');
+      }
+
+      function addResult(title, content, status) {
+        const test = document.createElement('div');
+        test.className = `test ${status}`;
+        test.innerHTML = `<strong>${title}</strong><pre>${content}</pre>`;
+        div.appendChild(test);
+      }
+    }
+
+    function clearAndReload() {
+      localStorage.clear();
+      sessionStorage.clear();
+      alert('Cache cleared!');
+      window.location.reload();
+    }
+
+    // Auto-run on load
+    runTests();
+  </script>
+</body>
+</html>

@@ -36,6 +36,29 @@ const defaultPages = [
   { id: 'model-info', label: 'Model Info', type: 'remote', src: '/pages/model-info.html' }
 ];
 
+const QUICK_ACTIONS = [
+  {
+    id: 'qa-summary',
+    label: 'Summarize last reply',
+    prompt: "Summarize the assistant's last response and list the next concrete steps."
+  },
+  {
+    id: 'qa-clarify',
+    label: 'Ask for clarity',
+    prompt: 'Clarify the current requirements and note any missing details before coding.'
+  },
+  {
+    id: 'qa-review',
+    label: 'Review session plan',
+    prompt: "Review this session's instructions and highlight potential risks or blockers."
+  },
+  {
+    id: 'qa-compare',
+    label: 'Compare models',
+    prompt: 'Compare the available models and recommend the best choice for this task.'
+  }
+];
+
 const state = {
   currentPage: 'chat',
   chat: [],
@@ -60,6 +83,13 @@ let instructionPresetControlRegistry = [];
 let presetRefreshPromise = null;
 
 window.appState = state;
+
+// Global navigation function for back buttons
+window.navigateToPage = function(pageId) {
+  state.currentPage = pageId;
+  renderNav();
+  renderPage(pageId);
+};
 
 const elements = {
   nav: document.getElementById('page-nav'),
@@ -119,16 +149,24 @@ async function bootstrapSettings() {
     applyTheme(state.settings.theme);
     persistClientSettings();
     notifySettingsSubscribers();
-    elements.status.textContent = 'online';
-    elements.status.classList.remove('badge-offline');
-    elements.status.classList.add('badge-online');
-    elements.activeModel.textContent = `model: ${state.settings.model}`;
+    if (elements.status) {
+      elements.status.textContent = 'online';
+      elements.status.classList.remove('badge-offline');
+      elements.status.classList.add('badge-online');
+    }
+    if (elements.activeModel) {
+      elements.activeModel.textContent = `model: ${state.settings.model}`;
+    }
   } catch (error) {
     console.error('Error in bootstrapSettings:', error);
-    elements.status.textContent = 'offline';
-    elements.status.classList.remove('badge-online');
-    elements.status.classList.add('badge-offline');
-    elements.activeModel.textContent = 'model: —';
+    if (elements.status) {
+      elements.status.textContent = 'offline';
+      elements.status.classList.remove('badge-online');
+      elements.status.classList.add('badge-offline');
+    }
+    if (elements.activeModel) {
+      elements.activeModel.textContent = 'model: —';
+    }
     restoreClientSettings();
     if (!state.instructionPresets || !state.instructionPresets.length) {
       state.instructionPresets = loadInstructionPresets();
@@ -270,6 +308,9 @@ function hydrateLocalHistory() {
 }
 
 function renderNav() {
+  // Skip if nav element doesn't exist (ultra-modern layout doesn't use top nav)
+  if (!elements.nav) return;
+
   const registry = getPageRegistry();
   const buttons = Object.values(registry).map((page) => {
     const button = document.createElement('button');
@@ -590,6 +631,26 @@ function attachChatHandlers() {
   const refreshBtn = document.getElementById('refresh-history');
   const clearBtn = document.getElementById('clear-history');
   const errorEl = document.getElementById('chat-error');
+
+  // Re-query status elements now that template is rendered
+  elements.status = document.getElementById('connection-status');
+  elements.activeModel = document.getElementById('active-model');
+
+  // Update status display with current state
+  if (elements.status && state.settings?.model) {
+    elements.status.textContent = 'online';
+    elements.status.classList.remove('badge-offline');
+    elements.status.classList.add('badge-online');
+  }
+  if (elements.activeModel && state.settings?.model) {
+    elements.activeModel.textContent = `model: ${state.settings.model}`;
+  }
+
+  // Initialize theme system
+  initializeThemeSystem();
+
+  // Initialize structured prompt toggle
+  initializeStructuredPromptToggle();
   const instructionsPreview = document.getElementById('session-instructions-preview');
   const modelSelector = document.getElementById('model-selector');
   const thinkingToggle = document.getElementById('thinking-toggle');
@@ -608,6 +669,8 @@ function attachChatHandlers() {
   updateThinkingStatus();
   setupChatInstructionPresetControl();
   renderChatSessionsList();
+  renderAiDisclosure();
+  renderQuickActions();
 
   if (modelSelector) {
     modelSelector.addEventListener('change', (event) => {
@@ -615,6 +678,7 @@ function attachChatHandlers() {
       persistClientSettings();
       elements.activeModel.textContent = `model: ${state.settings.model || '—'}`;
       updateThinkingStatus();
+      renderAiDisclosure();
     });
   }
 
@@ -625,10 +689,28 @@ function attachChatHandlers() {
       console.log('[DEBUG] Thinking toggled:', state.thinkingEnabled);
       persistThinkingPreference(state.thinkingEnabled);
       updateThinkingStatus();
+      renderAiDisclosure();
       if (state.thinkingEnabled) {
         clearThinkingStatusError();
         ensureThinkingPrerequisites();
       }
+    });
+  }
+
+  // AI Coder enhancement toggle
+  const aiCoderToggle = document.getElementById('ai-coder-toggle');
+  if (aiCoderToggle) {
+    // Load saved preference (default to TRUE)
+    const aiCoderDefault = state.settings?.aiCoderEnabled !== false; // Default enabled
+    aiCoderToggle.checked = aiCoderDefault;
+    state.settings.aiCoderEnabled = aiCoderDefault;
+
+    aiCoderToggle.addEventListener('change', (event) => {
+      state.settings.aiCoderEnabled = event.target.checked;
+      persistClientSettings();
+      const status = event.target.checked ? 'enabled' : 'disabled';
+      showNotification(`✨ AI Coder mode ${status}`, 'info', 2000);
+      console.log('[DEBUG] AI Coder enhancement:', status);
     });
   }
 
@@ -691,6 +773,165 @@ function attachChatHandlers() {
     });
   }
 
+  // Settings modal handlers for ultra-modern layout
+  const settingsBtn = document.getElementById('settings-btn-ultra');
+  const settingsModal = document.getElementById('settings-modal-ultra');
+  const closeSettingsBtn = document.getElementById('close-settings-ultra');
+
+  function initializeSettingsModal() {
+    // Populate model selector
+    renderModelSelector();
+
+    // Update connection status
+    const connectionStatus = document.getElementById('connection-status');
+    if (connectionStatus) {
+      if (elements.status && elements.status.textContent === 'online') {
+        connectionStatus.textContent = 'Connected';
+        connectionStatus.className = 'status-badge-ultra status-online';
+      } else {
+        connectionStatus.textContent = 'Offline';
+        connectionStatus.className = 'status-badge-ultra status-offline';
+      }
+    }
+
+    // Setup instruction preset controls
+    const presetSelect = document.getElementById('chat-instruction-preset-select');
+    if (presetSelect) {
+      const presets = getInstructionPresetCatalog();
+      presetSelect.innerHTML = '<option value="">Custom / manual</option>' +
+        presets.map(p => `<option value="${p.id}">${p.label}</option>`).join('');
+    }
+
+    // Update active model display
+    const activeModelDisplay = document.getElementById('active-model');
+    if (activeModelDisplay) {
+      activeModelDisplay.textContent = state.settings?.model || '—';
+    }
+
+    // Initialize GitHub controls
+    initializeGitHubControls();
+  }
+
+  function initializeGitHubControls() {
+    const tokenInput = document.getElementById('github-token-input');
+    const repoInput = document.getElementById('github-repo-input');
+    const connectBtn = document.getElementById('github-connect-btn');
+    const statusDiv = document.getElementById('github-status');
+    const statusText = document.getElementById('github-status-text');
+    const filesPreview = document.getElementById('github-files-preview');
+    const filesList = document.getElementById('github-files-list');
+
+    // Load saved values from localStorage
+    try {
+      const saved = JSON.parse(localStorage.getItem('github-config') || '{}');
+      if (tokenInput && saved.token) tokenInput.value = saved.token;
+      if (repoInput && saved.repo) repoInput.value = saved.repo;
+      if (saved.connected && saved.files) {
+        filesPreview.style.display = 'block';
+        filesList.textContent = `${saved.files.length} files loaded`;
+      }
+    } catch (e) {
+      console.error('Failed to load GitHub config:', e);
+    }
+
+    if (connectBtn) {
+      connectBtn.addEventListener('click', async () => {
+        const token = tokenInput?.value.trim();
+        const repo = repoInput?.value.trim();
+
+        if (!token || !repo) {
+          alert('Please enter both GitHub token and repository');
+          return;
+        }
+
+        connectBtn.disabled = true;
+        connectBtn.textContent = 'Connecting...';
+        statusDiv.style.display = 'block';
+        statusText.textContent = 'Fetching repository files...';
+
+        try {
+          const response = await fetchJson('/api/github/connect', {
+            method: 'POST',
+            body: JSON.stringify({ token, repo })
+          });
+
+          // Save to localStorage (token will be stored on backend only)
+          localStorage.setItem('github-config', JSON.stringify({
+            repo,
+            token,
+            connected: true,
+            files: response.files
+          }));
+
+          filesPreview.style.display = 'block';
+          filesList.innerHTML = `<strong>${response.files.length} files</strong> from ${repo}`;
+          statusText.textContent = '✓ Connected successfully!';
+          statusText.style.color = 'var(--success)';
+
+        } catch (error) {
+          console.error('GitHub connection failed:', error);
+          statusText.textContent = '✗ Failed: ' + error.message;
+          statusText.style.color = 'var(--error)';
+        } finally {
+          connectBtn.disabled = false;
+          connectBtn.textContent = 'Connect Repository';
+        }
+      });
+    }
+  }
+
+  if (settingsBtn && settingsModal) {
+    settingsBtn.addEventListener('click', () => {
+      settingsModal.style.display = 'flex';
+      initializeSettingsModal();
+    });
+  }
+
+  if (closeSettingsBtn && settingsModal) {
+    closeSettingsBtn.addEventListener('click', () => {
+      settingsModal.style.display = 'none';
+    });
+
+    // Close modal when clicking backdrop
+    settingsModal.addEventListener('click', (e) => {
+      if (e.target === settingsModal) {
+        settingsModal.style.display = 'none';
+      }
+    });
+  }
+
+  // Navigation handlers for ultra-modern layout
+  const navSessionsBtn = document.getElementById('nav-sessions-ultra');
+  const navHistoryBtn = document.getElementById('nav-history-ultra');
+  const navApiBtn = document.getElementById('nav-api-ultra');
+
+  if (navSessionsBtn) {
+    navSessionsBtn.addEventListener('click', () => {
+      // Navigate to sessions page
+      state.currentPage = 'sessions';
+      renderNav();
+      renderPage('sessions');
+    });
+  }
+
+  if (navHistoryBtn) {
+    navHistoryBtn.addEventListener('click', () => {
+      // Navigate to history page
+      state.currentPage = 'history';
+      renderNav();
+      renderPage('history');
+    });
+  }
+
+  if (navApiBtn) {
+    navApiBtn.addEventListener('click', () => {
+      // Navigate to API page
+      state.currentPage = 'api';
+      renderNav();
+      renderPage('api');
+    });
+  }
+
   if (refreshBtn) {
     refreshBtn.addEventListener('click', async () => {
       await loadServerHistory(state.activeSessionId);
@@ -703,7 +944,9 @@ function attachChatHandlers() {
     const spinner = document.getElementById('thinking-indicator');
     if (!spinner) return;
     spinner.classList.toggle('active', active);
-    sendBtn.disabled = active;
+    // Only disable send button if THIS session is sending
+    const isThisSessionSending = state.sessionSendingStates[state.activeSessionId];
+    sendBtn.disabled = isThisSessionSending;
     state.sessionSendingStates[sessionId] = active;
   }
 
@@ -719,7 +962,9 @@ function attachChatHandlers() {
     errorEl.textContent = '';
     input.value = '';
     setThinking(true, currentSessionId);
-    const liveUser = appendLiveUserMessage(message);
+    // CRITICAL: Display original message, not enhanced version
+    const originalMessage = message;
+    const liveUser = appendLiveUserMessage(originalMessage);
     const liveThinking = appendThinkingMessage();
     const effectiveModel = resolveModelForRequest();
     updateThinkingStatus(effectiveModel);
@@ -732,8 +977,15 @@ function attachChatHandlers() {
         sessionInstructions && sessionInstructions.length
           ? sessionInstructions
           : state.settings?.systemInstructions;
+
+      // Enhance message for AI coding if enabled
+      let processedMessage = enhanceAICoderPrompt(message);
+      processedMessage = addXMLStructurePrompt(processedMessage);
+
       const payload = {
-        message,
+        message: originalMessage, // Original for storage
+        enhancedMessage: processedMessage, // Enhanced for AI
+        useEnhanced: true,
         model: effectiveModel,
         instructions: instructionsToUse,
         apiEndpoint: state.settings?.apiEndpoint,
@@ -1032,6 +1284,7 @@ async function setActiveSession(sessionId, options = {}) {
   renderChatMessages();
   renderHistoryPage();
   notifySettingsSubscribers();
+  renderAiDisclosure();
 
   if (options.focusChat) {
     state.currentPage = 'chat';
@@ -1047,6 +1300,8 @@ function updateSessionInstructionsPreview() {
   const session = sessionsArray.find((item) => item.id === state.activeSessionId);
   if (!session) {
     previewEl.textContent = '';
+    previewEl.hidden = true;
+    renderAiDisclosure();
     return;
   }
 
@@ -1055,6 +1310,8 @@ function updateSessionInstructionsPreview() {
     ? session.instructions.trim().slice(0, 140) + (session.instructions.length > 140 ? '…' : '')
     : 'No custom instructions';
   previewEl.textContent = `${previewText} • ${attachmentsCount} attachment${attachmentsCount === 1 ? '' : 's'}`;
+  previewEl.hidden = !session.instructions;
+  renderAiDisclosure();
 }
 
 function updatePresetIndicator() {
@@ -1090,6 +1347,7 @@ function updateThinkingStatus(effectiveModel = resolveModelForRequest()) {
   if (!state.thinkingEnabled) {
     status.classList.remove('active');
     status.textContent = 'Thinking mode off';
+    renderAiDisclosure();
     return;
   }
   status.classList.add('active');
@@ -1100,6 +1358,7 @@ function updateThinkingStatus(effectiveModel = resolveModelForRequest()) {
   } else {
     status.textContent = 'Thinking enabled (no model selected)';
   }
+  renderAiDisclosure();
 }
 
 function showThinkingStatusError(message) {
@@ -1133,16 +1392,49 @@ async function ensureThinkingPrerequisites() {
 
 function renderChatSessionsList() {
   const container = document.getElementById('chat-sessions-list');
-  if (!container) return;
 
-  container.innerHTML = '';
+  // Ultra-modern layout: time-grouped session containers
+  const todayContainer = document.querySelector('#sessions-today .session-list-ultra');
+  const yesterdayContainer = document.querySelector('#sessions-yesterday .session-list-ultra');
+  const weekContainer = document.querySelector('#sessions-week .session-list-ultra');
+  const olderContainer = document.querySelector('#sessions-older .session-list-ultra');
+
+  // Clear all containers
+  if (todayContainer) todayContainer.innerHTML = '';
+  if (yesterdayContainer) yesterdayContainer.innerHTML = '';
+  if (weekContainer) weekContainer.innerHTML = '';
+  if (olderContainer) olderContainer.innerHTML = '';
+  if (container) container.innerHTML = '';
 
   if (!state.sessions || state.sessions.length === 0) {
-    container.innerHTML = '<p class="muted small-text" style="padding: 1rem; text-align: center;">No chats yet</p>';
+    if (container) container.innerHTML = '<p class="muted small-text" style="padding: 1rem; text-align: center;">No chats yet</p>';
     return;
   }
 
+  // Group sessions by time period
+  const now = Date.now();
+  const oneDayMs = 24 * 60 * 60 * 1000;
+  const groups = { today: [], yesterday: [], week: [], older: [] };
+
   state.sessions.forEach((session) => {
+    const sessionHistory = state.sessionHistories[session.id] || [];
+    const lastMessage = sessionHistory.length > 0 ? sessionHistory[sessionHistory.length - 1] : null;
+    const sessionTime = lastMessage?.timestamp ? new Date(lastMessage.timestamp).getTime() : session.createdAt || now;
+    const daysAgo = (now - sessionTime) / oneDayMs;
+
+    if (daysAgo < 1) {
+      groups.today.push(session);
+    } else if (daysAgo < 2) {
+      groups.yesterday.push(session);
+    } else if (daysAgo < 7) {
+      groups.week.push(session);
+    } else {
+      groups.older.push(session);
+    }
+  });
+
+  // Helper to create session button
+  const createSessionButton = (session) => {
     const btn = document.createElement('button');
     btn.className = 'session-item';
     if (session.id === state.activeSessionId) {
@@ -1156,16 +1448,62 @@ function renderChatSessionsList() {
       ? (firstMessage.length > 40 ? firstMessage.substring(0, 40) + '...' : firstMessage)
       : (session.name || 'New Chat');
 
-    // Get preview from latest message
-    const lastMessage = sessionHistory.length > 0 ? sessionHistory[sessionHistory.length - 1] : null;
-    const preview = lastMessage
-      ? (lastMessage.assistant || lastMessage.user || '').substring(0, 60)
-      : 'No messages yet';
-
-    btn.innerHTML = `
-      <div class="session-item-title">${escapeHtml(title)}</div>
-      <div class="session-item-preview">${escapeHtml(preview)}</div>
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'session-delete-btn';
+    deleteBtn.title = 'Delete chat';
+    deleteBtn.innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+      </svg>
     `;
+
+    deleteBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (session.id === 'default') {
+        alert('Cannot delete the default session');
+        return;
+      }
+      if (!confirm('Delete this chat? This cannot be undone.')) {
+        return;
+      }
+      try {
+        console.log('[DEBUG] Deleting session:', session.id);
+        const response = await fetch(buildUrl(`/api/sessions/${encodeURIComponent(session.id)}`), {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Delete failed');
+        }
+
+        const result = await response.json();
+        console.log('[DEBUG] Delete successful:', result);
+
+        state.sessions = state.sessions.filter(s => s.id !== session.id);
+        delete state.sessionHistories[session.id];
+        delete state.localHistory[session.id];
+        if (state.activeSessionId === session.id) {
+          state.activeSessionId = state.sessions[0]?.id || 'default';
+          await loadServerHistory(state.activeSessionId);
+          renderChatMessages();
+        }
+        renderChatSessionsList();
+        persistLocalHistory();
+        persistActiveSession();
+      } catch (error) {
+        console.error('[ERROR] Failed to delete session:', error);
+        alert('Failed to delete chat: ' + error.message);
+      }
+    });
+
+    const titleDiv = document.createElement('div');
+    titleDiv.className = 'session-item-title';
+    titleDiv.textContent = title;
+
+    btn.appendChild(titleDiv);
+    btn.appendChild(deleteBtn);
 
     btn.addEventListener('click', async () => {
       state.activeSessionId = session.id;
@@ -1189,8 +1527,33 @@ function renderChatSessionsList() {
       }
     });
 
-    container.appendChild(btn);
-  });
+    return btn;
+  };
+
+  // Render into time-grouped containers (ultra-modern layout)
+  if (todayContainer) {
+    groups.today.forEach(session => todayContainer.appendChild(createSessionButton(session)));
+    document.getElementById('sessions-today').style.display = groups.today.length > 0 ? 'block' : 'none';
+  }
+  if (yesterdayContainer) {
+    groups.yesterday.forEach(session => yesterdayContainer.appendChild(createSessionButton(session)));
+    document.getElementById('sessions-yesterday').style.display = groups.yesterday.length > 0 ? 'block' : 'none';
+  }
+  if (weekContainer) {
+    groups.week.forEach(session => weekContainer.appendChild(createSessionButton(session)));
+    document.getElementById('sessions-week').style.display = groups.week.length > 0 ? 'block' : 'none';
+  }
+  if (olderContainer) {
+    groups.older.forEach(session => olderContainer.appendChild(createSessionButton(session)));
+    document.getElementById('sessions-older').style.display = groups.older.length > 0 ? 'block' : 'none';
+  }
+
+  // Fallback: render into old container for compatibility
+  if (container) {
+    state.sessions.forEach((session) => {
+      container.appendChild(createSessionButton(session));
+    });
+  }
 }
 
 async function createNewChat() {
@@ -1240,8 +1603,138 @@ async function createNewChat() {
   }
 }
 
+// XML Tag Parsing for Structured Content
+function parseXMLTags(content) {
+  const tags = {};
+  const xmlTagRegex = /<(\w+)>([\s\S]*?)<\/\1>/g;
+  let match;
+  let remainingContent = content;
+
+  // Extract XML tags
+  while ((match = xmlTagRegex.exec(content)) !== null) {
+    const tagName = match[1].toLowerCase();
+    const tagContent = match[2].trim();
+    tags[tagName] = tagContent;
+    // Remove the tag from remaining content
+    remainingContent = remainingContent.replace(match[0], '').trim();
+  }
+
+  return { tags, remainingContent };
+}
+
+function createStructuredSection(tagName, content, isCollapsible = false) {
+  const section = document.createElement('div');
+  section.className = `structured-section structured-${tagName}`;
+
+  const header = document.createElement('div');
+  header.className = 'structured-header';
+
+  const icon = getTagIcon(tagName);
+  const label = getTagLabel(tagName);
+
+  if (isCollapsible) {
+    header.innerHTML = `
+      <div class="structured-title">
+        <span class="structured-icon">${icon}</span>
+        <span class="structured-label">${label}</span>
+        <span class="toggle-icon">▼</span>
+      </div>
+    `;
+    header.classList.add('collapsible');
+
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'structured-content collapsed';
+    contentDiv.innerHTML = `<div class="structured-body">${formatTagContent(tagName, content)}</div>`;
+
+    header.addEventListener('click', () => {
+      contentDiv.classList.toggle('collapsed');
+      const toggleIcon = header.querySelector('.toggle-icon');
+      toggleIcon.textContent = contentDiv.classList.contains('collapsed') ? '▼' : '▲';
+    });
+
+    section.appendChild(header);
+    section.appendChild(contentDiv);
+  } else {
+    header.innerHTML = `
+      <div class="structured-title">
+        <span class="structured-icon">${icon}</span>
+        <span class="structured-label">${label}</span>
+      </div>
+    `;
+
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'structured-content';
+    contentDiv.innerHTML = `<div class="structured-body">${formatTagContent(tagName, content)}</div>`;
+
+    section.appendChild(header);
+    section.appendChild(contentDiv);
+  }
+
+  return section;
+}
+
+function getTagIcon(tagName) {
+  const icons = {
+    role: '👤',
+    context: '📋',
+    goal: '🎯',
+    todos: '✅',
+    requirements: '📋',
+    analysis: '🔍',
+    solution: '💡',
+    implementation: '⚙️',
+    verification: '✓',
+    notes: '📝',
+    warning: '⚠️',
+    error: '❌',
+    success: '✅'
+  };
+  return icons[tagName] || '📄';
+}
+
+function getTagLabel(tagName) {
+  const labels = {
+    role: 'Role',
+    context: 'Context',
+    goal: 'Goal',
+    todos: 'Todo Items',
+    requirements: 'Requirements',
+    analysis: 'Analysis',
+    solution: 'Solution',
+    implementation: 'Implementation',
+    verification: 'Verification',
+    notes: 'Notes',
+    warning: 'Warning',
+    error: 'Error',
+    success: 'Success'
+  };
+  return labels[tagName] || tagName.charAt(0).toUpperCase() + tagName.slice(1);
+}
+
+function formatTagContent(tagName, content) {
+  // Handle todos specially - convert to checklist
+  if (tagName === 'todos') {
+    const lines = content.split('\n').filter(line => line.trim());
+    let formatted = '<ul class="todo-list">';
+    lines.forEach(line => {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+        const text = trimmed.substring(2).trim();
+        formatted += `<li class="todo-item"><span class="todo-checkbox">☐</span> ${escapeHtml(text)}</li>`;
+      } else if (trimmed) {
+        formatted += `<li class="todo-item"><span class="todo-checkbox">☐</span> ${escapeHtml(trimmed)}</li>`;
+      }
+    });
+    formatted += '</ul>';
+    return formatted;
+  }
+
+  // Handle other content with basic formatting
+  return escapeHtml(content).replace(/\n/g, '<br>');
+}
+
 function renderChatMessages() {
-  const container = document.getElementById('chat-history');
+  const container = document.getElementById('chat-history') || document.getElementById('chat-history-ultra');
   if (!container) return;
   clearLiveEntries();
   container.innerHTML = '';
@@ -1253,27 +1746,259 @@ function renderChatMessages() {
       : state.localHistory[sessionId]) || [];
 
   if (!history || !history.length) {
-    container.innerHTML = '<p class="muted">No messages yet. Start the conversation!</p>';
+    container.innerHTML = '<div class="empty-state"><p class="muted">No messages yet. Start the conversation!</p></div>';
     return;
   }
 
-  history.forEach((entry) => {
-    const wrapper = document.createElement('article');
-    wrapper.className = 'chat-entry assistant';
-    const questionText = escapeHtml(entry.user || '');
-    const answerText = escapeHtml(entry.assistant || '');
-    wrapper.innerHTML = `
-      <header>
-        <strong>${entry.user || 'User'}</strong>
-        <span>${new Date(entry.timestamp || Date.now()).toLocaleTimeString()}</span>
-      </header>
-      <p><strong>Q:</strong> ${questionText}</p>
-      <p><strong>A:</strong> ${answerText}</p>
-    `;
-    container.appendChild(wrapper);
+  history.forEach((entry, index) => {
+    const conversation = document.createElement('div');
+    conversation.className = 'conversation-group';
+
+    // User message bubble with avatar
+    if (entry.user) {
+      const userBubble = document.createElement('div');
+      userBubble.className = 'message-bubble-user';
+      userBubble.innerHTML = `
+        <div class="message-avatar user">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+          </svg>
+        </div>
+        <div class="message-content">
+          <div class="message-header">
+            <span class="message-sender">You</span>
+            <span class="message-timestamp">${new Date(entry.timestamp || Date.now()).toLocaleTimeString()}</span>
+          </div>
+          <div class="message-text">${escapeHtml(entry.user)}</div>
+        </div>
+      `;
+      conversation.appendChild(userBubble);
+    }
+
+    // Assistant message bubble with structured content and avatar
+    if (entry.assistant) {
+      const assistantBubble = document.createElement('div');
+      assistantBubble.className = 'message-bubble-assistant';
+
+      // Create avatar
+      const avatar = document.createElement('div');
+      avatar.className = 'message-avatar assistant';
+      avatar.innerHTML = `
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
+        </svg>
+      `;
+      assistantBubble.appendChild(avatar);
+
+      // Parse XML tags from assistant response
+      const { tags, remainingContent } = parseXMLTags(entry.assistant);
+
+      const contentWrapper = document.createElement('div');
+      contentWrapper.className = 'assistant-content-wrapper';
+
+      const messageContent = document.createElement('div');
+      messageContent.className = 'message-content';
+
+      // Add message header
+      const messageHeader = document.createElement('div');
+      messageHeader.className = 'message-header';
+      messageHeader.innerHTML = `
+        <span class="message-sender">Assistant</span>
+        <span class="message-timestamp">${new Date(entry.timestamp || Date.now()).toLocaleTimeString()}</span>
+      `;
+      messageContent.appendChild(messageHeader);
+
+      // Render structured sections for each tag
+      const structuredOrder = ['role', 'context', 'goal', 'requirements', 'analysis', 'solution', 'implementation', 'todos', 'verification', 'notes'];
+
+      let hasStructuredContent = false;
+      structuredOrder.forEach(tagName => {
+        if (tags[tagName]) {
+          const isCollapsible = ['todos', 'analysis', 'implementation', 'verification'].includes(tagName);
+          const section = createStructuredSection(tagName, tags[tagName], isCollapsible);
+          messageContent.appendChild(section);
+          hasStructuredContent = true;
+        }
+      });
+
+      // Add any remaining XML tags not in the standard order
+      Object.keys(tags).forEach(tagName => {
+        if (!structuredOrder.includes(tagName)) {
+          const section = createStructuredSection(tagName, tags[tagName], false);
+          messageContent.appendChild(section);
+          hasStructuredContent = true;
+        }
+      });
+
+      // Add remaining content if any
+      if (remainingContent) {
+        const textSection = document.createElement('div');
+        textSection.className = 'message-text';
+        textSection.innerHTML = escapeHtml(remainingContent).replace(/\n/g, '<br>');
+        if (hasStructuredContent) {
+          messageContent.appendChild(textSection);
+        } else {
+          messageContent.innerHTML = textSection.innerHTML;
+        }
+      }
+
+      // Add thinking mode if present (artifact-style)
+      if (entry.thinking) {
+        const wordCount = entry.thinking.split(/\s+/).length;
+        const thinkingSection = document.createElement('div');
+        thinkingSection.className = 'thinking-section collapsed';
+        thinkingSection.innerHTML = `
+          <div class="thinking-header" onclick="this.parentElement.classList.toggle('collapsed')">
+            <div class="thinking-header-left">
+              <svg class="thinking-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>
+              </svg>
+              <span class="thinking-label">
+                Thinking Process
+                <span class="thinking-word-count">${wordCount} words</span>
+              </span>
+            </div>
+            <svg class="thinking-toggle" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </div>
+          <div class="thinking-content">
+            <div class="thinking-text">${escapeHtml(entry.thinking)}</div>
+          </div>
+        `;
+        messageContent.appendChild(thinkingSection);
+      }
+
+      contentWrapper.appendChild(messageContent);
+
+      // Add message actions
+      const messageActions = document.createElement('div');
+      messageActions.className = 'message-actions';
+      const assistantText = escapeHtml(entry.assistant);
+      const userText = escapeHtml(entry.user || '');
+      messageActions.innerHTML = `
+        <button class="action-btn copy-btn" data-copy-text="${assistantText}" title="Copy message">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+          </svg>
+          Copy
+        </button>
+        <button class="action-btn regenerate-btn" data-user-message="${userText}" title="Regenerate response">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+          </svg>
+          Regenerate
+        </button>
+      `;
+      contentWrapper.appendChild(messageActions);
+
+      assistantBubble.appendChild(contentWrapper);
+      conversation.appendChild(assistantBubble);
+    }
+
+    container.appendChild(conversation);
+  });
+
+  // Add message action event listeners
+  container.querySelectorAll('.copy-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const text = e.currentTarget.dataset.copyText;
+      try {
+        await navigator.clipboard.writeText(text);
+        e.currentTarget.innerHTML = '<span style="color: var(--success)">✓</span>';
+        setTimeout(() => {
+          e.currentTarget.innerHTML = `
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+          `;
+        }, 2000);
+      } catch (err) {
+        console.error('Failed to copy text:', err);
+      }
+    });
+  });
+
+  // Add regenerate button handlers
+  container.querySelectorAll('.regenerate-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const userMessage = e.currentTarget.dataset.userMessage;
+      if (!userMessage) return;
+      const input = document.getElementById('chat-input');
+      if (input) {
+        input.value = userMessage;
+        input.focus();
+        // Optionally auto-send
+        // sendMessage();
+      }
+    });
   });
 
   container.scrollTop = container.scrollHeight;
+}
+
+function renderQuickActions() {
+  const container = document.getElementById('chat-quick-actions');
+  if (!container) return;
+  container.innerHTML = '';
+  QUICK_ACTIONS.forEach((action) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'quick-action-btn';
+    button.textContent = action.label;
+    button.dataset.promptId = action.id;
+    button.addEventListener('click', () => {
+      const input = document.getElementById('chat-input');
+      if (!input) return;
+      input.value = action.prompt;
+      input.focus();
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    container.appendChild(button);
+  });
+}
+
+function getActivePresetLabel() {
+  const sessionsArray = Array.isArray(state.sessions) ? state.sessions : [];
+  const session = sessionsArray.find((item) => item.id === state.activeSessionId);
+  if (!session) {
+    return null;
+  }
+  if (session.presetId && Array.isArray(state.instructionPresets)) {
+    const preset = state.instructionPresets.find((p) => p.id === session.presetId);
+    return preset?.label || session.presetId;
+  }
+  return null;
+}
+
+function renderAiDisclosure() {
+  const container = document.getElementById('ai-disclosure');
+  if (!container) return;
+  const messageEl = document.getElementById('ai-disclosure-message');
+  const toggleBtn = document.getElementById('ai-disclosure-toggle');
+  const instructionsPreview = document.getElementById('session-instructions-preview');
+
+  const modelName = state.settings?.model || '—';
+  const thinkingCopy = state.thinkingEnabled ? 'Thinking stream on' : 'Thinking stream off';
+  const presetLabel = getActivePresetLabel();
+  const presetCopy = presetLabel ? `Preset: ${presetLabel}` : 'Custom instructions';
+
+  if (messageEl) {
+    messageEl.textContent = `Using model ${modelName}. ${presetCopy}. ${thinkingCopy}.`;
+  }
+
+  if (toggleBtn && instructionsPreview) {
+    const hasInstructions = Boolean(instructionsPreview.textContent?.trim());
+    toggleBtn.disabled = !hasInstructions;
+    toggleBtn.textContent = instructionsPreview.hidden ? 'View instructions' : 'Hide instructions';
+    toggleBtn.onclick = () => {
+      if (!hasInstructions) return;
+      instructionsPreview.hidden = !instructionsPreview.hidden;
+      toggleBtn.textContent = instructionsPreview.hidden ? 'View instructions' : 'Hide instructions';
+    };
+  }
 }
 
 function escapeHtml(value = '') {
@@ -1290,7 +2015,7 @@ function clearLiveEntries() {
 }
 
 function appendLiveUserMessage(content) {
-  const container = document.getElementById('chat-history');
+  const container = document.getElementById('chat-history') || document.getElementById('chat-history-ultra');
   if (!container) return null;
   const article = document.createElement('article');
   article.className = 'chat-entry live-entry';
@@ -1307,7 +2032,7 @@ function appendLiveUserMessage(content) {
 }
 
 function appendThinkingMessage() {
-  const container = document.getElementById('chat-history');
+  const container = document.getElementById('chat-history') || document.getElementById('chat-history-ultra');
   if (!container) return null;
   const article = document.createElement('article');
   article.className = 'chat-entry assistant live-entry thinking-entry';
@@ -1354,7 +2079,7 @@ function updateThinkingEntry(entry, text) {
   }
 
   // Auto-scroll to show new thinking content
-  const container = document.getElementById('chat-history');
+  const container = document.getElementById('chat-history') || document.getElementById('chat-history-ultra');
   if (container) {
     container.scrollTop = container.scrollHeight;
   }
@@ -1362,12 +2087,20 @@ function updateThinkingEntry(entry, text) {
   const label = entry.querySelector('.thinking-label');
   if (label) {
     if (text && text.length > 0) {
-      // Update label to show active thinking
+      // Update label to show active thinking with live indicator
       const wordCount = text.split(/\s+/).filter(w => w.length > 0).length;
-      label.textContent = `Thinking... (${wordCount} words)`;
+      label.innerHTML = `<span style="display: inline-block; width: 6px; height: 6px; background: #10b981; border-radius: 50%; margin-right: 6px; animation: pulse 1.5s infinite;"></span>Thinking (${wordCount} words)`;
     } else {
-      label.textContent = 'Thinking...';
+      label.innerHTML = `<span style="display: inline-block; width: 6px; height: 6px; background: #10b981; border-radius: 50%; margin-right: 6px; animation: pulse 1.5s infinite;"></span>Thinking...`;
     }
+  }
+
+  // Auto-expand the thinking section while streaming
+  const thinkingSection = entry.querySelector('.thinking-section');
+  const thinkingContent = entry.querySelector('.thinking-content');
+  if (thinkingSection && thinkingContent && text && text.length > 10) {
+    thinkingSection.classList.remove('collapsed');
+    thinkingContent.classList.remove('collapsed');
   }
 }
 
@@ -1617,11 +2350,14 @@ function setupChatInstructionPresetControl() {
   const select = document.getElementById('chat-instruction-preset-select');
   const applyButton = document.getElementById('chat-instruction-preset-apply');
   const descriptionEl = document.getElementById('chat-instruction-preset-description');
-  if (!select || !applyButton) return;
+  if (!select) return;
   if (select.dataset.initialized === 'true') {
     return;
   }
   select.dataset.initialized = 'true';
+
+  // Auto-apply mode if no apply button (settings modal)
+  const autoApply = !applyButton;
 
   const syncFromSession = () => {
     if (!document.body.contains(select)) {
@@ -1659,12 +2395,33 @@ function setupChatInstructionPresetControl() {
     }
   }
 
-  select.addEventListener('change', () => {
+  select.addEventListener('change', async () => {
     const preset = findInstructionPresetById(select.value);
     updateDescription(preset || null);
+
+    // Auto-apply if in settings modal (no apply button)
+    if (autoApply && state.activeSessionId) {
+      try {
+        const instructions = preset ? preset.instructions : '';
+        const presetId = preset ? preset.id : null;
+
+        await fetchJson(`/api/sessions/${encodeURIComponent(state.activeSessionId)}`, {
+          method: 'PUT',
+          body: JSON.stringify({ instructions, presetId })
+        });
+
+        await loadSessions();
+        await loadServerHistory(state.activeSessionId);
+        updateSessionInstructionsPreview();
+        renderSessionSelector();
+      } catch (error) {
+        console.error('Failed to apply preset', error);
+      }
+    }
   });
 
-  applyButton.addEventListener('click', async () => {
+  if (applyButton) {
+    applyButton.addEventListener('click', async () => {
     const preset = findInstructionPresetById(select.value);
     if (!preset) {
       updateDescription(null);
@@ -1714,7 +2471,8 @@ function setupChatInstructionPresetControl() {
     } finally {
       applyButton.disabled = false;
     }
-  });
+    });
+  }
 
   const control = {
     refresh() {
@@ -2015,12 +2773,302 @@ function normalizeBaseUrl(url) {
   }
 }
 
-function applyTheme(theme) {
-  if (theme === 'system') {
-    document.documentElement.removeAttribute('data-theme');
-  } else {
-    document.documentElement.setAttribute('data-theme', theme);
+// XML Structure Prompting System
+function addXMLStructurePrompt(userMessage) {
+  // Check if structured prompts are enabled
+  if (!isStructuredPromptEnabled()) {
+    return userMessage; // Return original message if disabled
   }
+
+  const xmlPromptTemplate = `
+Please structure your response using XML tags to organize the content clearly. Use the following structure when relevant:
+
+<role>Your role or perspective in responding to this query</role>
+<context>Relevant background information or context</context>
+<goal>The main objective or what you aim to achieve</goal>
+<analysis>Your analysis of the situation, problem, or request</analysis>
+<solution>Your proposed solution or main response</solution>
+<implementation>Specific steps or implementation details</implementation>
+<todos>
+- Actionable task 1
+- Actionable task 2
+- Actionable task 3
+</todos>
+<verification>How to verify or validate the solution</verification>
+<notes>Additional notes, considerations, or warnings</notes>
+
+User's request: ${userMessage}
+
+Please provide a comprehensive, structured response using the relevant XML tags from above.`;
+
+  return xmlPromptTemplate;
+}
+
+function isStructuredPromptEnabled() {
+  // Check if user wants structured XML responses
+  return state.settings?.enableStructuredPrompts === true; // Default to DISABLED
+}
+
+function toggleStructuredPrompts() {
+  state.settings.enableStructuredPrompts = !state.settings.enableStructuredPrompts;
+  persistClientSettings();
+
+  // Show notification
+  const status = state.settings.enableStructuredPrompts ? 'enabled' : 'disabled';
+  showStructuredPromptNotification(status);
+}
+
+// AI Coder Enhancement - Intelligent context-aware prompt enhancement
+function enhanceAICoderPrompt(userMessage) {
+  // Check if AI Coder enhancement is enabled
+  if (!state.settings?.aiCoderEnabled) {
+    return userMessage;
+  }
+
+  // Don't enhance if already detailed or already structured
+  const isDetailed = userMessage.length > 250;
+  const isStructured = userMessage.includes('<') || userMessage.includes('```') || userMessage.includes('```');
+  const isQuestion = userMessage.trim().endsWith('?');
+
+  if (isDetailed || isStructured) {
+    return userMessage;
+  }
+
+  // Detect intent from keywords
+  const codingKeywords = /^(fix|add|create|implement|build|develop|make|update|modify|change|refactor|optimize|improve|debug|test|write|code|script|function|feature|bug|issue|error)/i;
+  const isCodingTask = codingKeywords.test(userMessage.trim());
+
+  // Don't enhance non-coding queries
+  if (!isCodingTask && !isQuestion) {
+    return userMessage;
+  }
+
+  // Build context-aware enhanced prompt
+  const enhancedPrompt = `${userMessage}
+
+EXECUTION INSTRUCTIONS:
+1. DISCOVER FILES FIRST - Always search/read relevant files before coding
+2. USE CONTEXT - Apply all knowledge and context the user has provided
+3. IMPLEMENT FULLY - Complete the entire task, never stop at just discovery
+4. RESEARCH - Search codebase for patterns, existing implementations
+5. NO PLACEHOLDERS - Write complete, production-ready code only
+
+Workflow:
+→ Discovery (find files, understand codebase)
+→ Plan (design approach)
+→ Implement (write ALL code)
+→ Verify (test logic)
+
+CRITICAL: Do not stop after discovery. Complete the implementation.`;
+
+  return enhancedPrompt;
+}
+
+function showStructuredPromptNotification(status) {
+  const notification = document.createElement('div');
+  notification.className = 'theme-notification';
+  notification.textContent = `📋 Structured prompts ${status}`;
+
+  document.body.appendChild(notification);
+
+  // Animate in
+  requestAnimationFrame(() => {
+    notification.classList.add('show');
+  });
+
+  // Remove after delay
+  setTimeout(() => {
+    notification.classList.remove('show');
+    setTimeout(() => {
+      if (document.body.contains(notification)) {
+        document.body.removeChild(notification);
+      }
+    }, 300);
+  }, 2000);
+}
+
+function initializeStructuredPromptToggle() {
+  const structuredToggle = document.getElementById('structured-prompt-toggle');
+  if (structuredToggle) {
+    // Set initial state
+    structuredToggle.checked = isStructuredPromptEnabled();
+
+    structuredToggle.addEventListener('change', (event) => {
+      toggleStructuredPrompts();
+    });
+  }
+}
+
+// Enhanced Theme Management with System Preference Detection
+function applyTheme(theme) {
+  const resolvedTheme = resolveTheme(theme);
+
+  if (resolvedTheme === 'dark') {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  } else {
+    document.documentElement.removeAttribute('data-theme');
+  }
+
+  updateThemeToggleIcon(resolvedTheme);
+
+  // Store the resolved theme for UI state
+  state.resolvedTheme = resolvedTheme;
+}
+
+function resolveTheme(theme) {
+  if (theme === 'system') {
+    return getSystemTheme();
+  }
+  return theme || 'light';
+}
+
+function getSystemTheme() {
+  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    return 'dark';
+  }
+  return 'light';
+}
+
+function updateThemeToggleIcon(resolvedTheme) {
+  const lightIcon = document.querySelector('.theme-icon-light');
+  const darkIcon = document.querySelector('.theme-icon-dark');
+
+  if (lightIcon && darkIcon) {
+    if (resolvedTheme === 'dark') {
+      lightIcon.style.display = 'none';
+      darkIcon.style.display = 'block';
+    } else {
+      lightIcon.style.display = 'block';
+      darkIcon.style.display = 'none';
+    }
+  }
+}
+
+function cycleTheme() {
+  const currentTheme = state.settings.theme || 'system';
+  let nextTheme;
+
+  switch (currentTheme) {
+    case 'light':
+      nextTheme = 'dark';
+      break;
+    case 'dark':
+      nextTheme = 'system';
+      break;
+    case 'system':
+    default:
+      nextTheme = 'light';
+      break;
+  }
+
+  return nextTheme;
+}
+
+function initializeThemeSystem() {
+  // Apply initial theme
+  applyTheme(state.settings.theme);
+
+  // Listen for system theme changes
+  if (window.matchMedia) {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+
+    mediaQuery.addEventListener('change', (e) => {
+      // Only react to system changes if user has system theme selected
+      if (state.settings.theme === 'system') {
+        applyTheme('system');
+      }
+    });
+  }
+
+  // Setup theme toggle button
+  const themeToggle = document.getElementById('theme-toggle');
+  if (themeToggle) {
+    themeToggle.addEventListener('click', async () => {
+      const newTheme = cycleTheme();
+
+      // Update local state
+      state.settings.theme = newTheme;
+      applyTheme(newTheme);
+      persistClientSettings();
+
+      // Update server settings
+      try {
+        await fetchJson('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ theme: newTheme })
+        });
+
+        notifySettingsSubscribers();
+
+        // Show brief notification
+        showThemeNotification(newTheme);
+      } catch (error) {
+        console.error('Failed to save theme preference:', error);
+        // Revert on error
+        state.settings.theme = currentTheme;
+        applyTheme(currentTheme);
+      }
+    });
+  }
+}
+
+// Generic notification system
+function showNotification(message, type = 'info', duration = 2500) {
+  const notification = document.createElement('div');
+  notification.className = `notification-ultra notification-${type}`;
+  notification.textContent = message;
+
+  // Position in top-right corner
+  notification.style.cssText = `
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    padding: 12px 20px;
+    border-radius: 8px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-light);
+    color: var(--text-primary);
+    font-size: 14px;
+    z-index: 10000;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  `;
+
+  document.body.appendChild(notification);
+
+  // Animate in
+  requestAnimationFrame(() => {
+    notification.style.opacity = '1';
+  });
+
+  // Remove after delay
+  setTimeout(() => {
+    notification.style.opacity = '0';
+    setTimeout(() => {
+      if (document.body.contains(notification)) {
+        document.body.removeChild(notification);
+      }
+    }, 300);
+  }, duration);
+}
+
+function showThemeNotification(theme) {
+  let message;
+  switch (theme) {
+    case 'light':
+      message = '☀️ Light theme enabled';
+      break;
+    case 'dark':
+      message = '🌙 Dark theme enabled';
+      break;
+    case 'system':
+      const systemTheme = getSystemTheme();
+      message = `🖥️ System theme (${systemTheme})`;
+      break;
+  }
+  showNotification(message, 'info', 2000);
 }
 
 function loadLocalHistory() {

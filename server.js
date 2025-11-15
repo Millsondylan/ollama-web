@@ -916,7 +916,9 @@ function runOllama({ prompt, model, apiEndpoint, timeoutMs = 120000 }) {
 }
 
 app.post('/api/chat', async (req, res) => {
-  const { message, model, instructions, apiEndpoint, includeHistory, sessionId } = req.body || {};
+  const { message, enhancedMessage, useEnhanced, model, instructions, apiEndpoint, includeHistory, sessionId } = req.body || {};
+  const messageForAI = (useEnhanced && enhancedMessage) ? enhancedMessage : message;
+  const messageForHistory = message;
 
   const providedKey = extractApiKey(req);
   const keyRecord = providedKey ? verifyApiKey(providedKey) : null;
@@ -953,7 +955,7 @@ app.post('/api/chat', async (req, res) => {
       ? []
       : session.history.slice(-1 * contextLimit);
 
-  const prompt = buildPrompt(message, combinedInstructions, contextSlice);
+  const prompt = buildPrompt(messageForAI, combinedInstructions, contextSlice);
   const startedAt = Date.now();
 
   try {
@@ -995,7 +997,7 @@ app.post('/api/chat', async (req, res) => {
     const entry = {
       id: crypto.randomUUID(),
       timestamp: new Date().toISOString(),
-      user: message,
+      user: messageForHistory, // Original message for display
       assistant: responseText,
       model: modelToUse,
       endpoint: endpointToUse,
@@ -1181,7 +1183,9 @@ app.post('/api/generate', async (req, res) => {
 });
 
 app.post('/api/chat/stream', async (req, res) => {
-  const { message, model, instructions, apiEndpoint, includeHistory, sessionId } = req.body || {};
+  const { message, enhancedMessage, useEnhanced, model, instructions, apiEndpoint, includeHistory, sessionId } = req.body || {};
+  const messageForAI = (useEnhanced && enhancedMessage) ? enhancedMessage : message;
+  const messageForHistory = message;
 
   if (!message) {
     return res.status(400).json({ error: 'Message is required' });
@@ -1207,7 +1211,7 @@ app.post('/api/chat/stream', async (req, res) => {
       ? []
       : session.history.slice(-1 * contextLimit);
 
-  const prompt = buildPrompt(message, combinedInstructions, contextSlice);
+  const prompt = buildPrompt(messageForAI, combinedInstructions, contextSlice);
   const startedAt = Date.now();
 
   res.writeHead(200, {
@@ -1310,7 +1314,7 @@ app.post('/api/chat/stream', async (req, res) => {
     const entry = {
       id: crypto.randomUUID(),
       timestamp: new Date().toISOString(),
-      user: message,
+      user: messageForHistory, // Original message
       assistant: aggregate,
       model: modelToUse,
       endpoint: endpointToUse,
@@ -1432,7 +1436,7 @@ app.post('/api/sessions/:id/select', async (req, res) => {
 app.delete('/api/sessions/:id', async (req, res) => {
   try {
     await deleteSession(req.params.id);
-    return res.status(204).end();
+    return res.json({ success: true, message: 'Session deleted' });
   } catch (error) {
     return res.status(400).json({ error: error.message || 'Unable to delete session' });
   }
@@ -1662,6 +1666,58 @@ app.post('/api/sync/data', async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ error: error.message || 'Failed to sync data' });
+  }
+});
+
+// GitHub Integration API
+app.post('/api/github/connect', async (req, res) => {
+  try {
+    const { token, repo } = req.body || {};
+    if (!token || !repo) {
+      return res.status(400).json({ error: 'Token and repo are required' });
+    }
+    if (!/^[\w-]+\/[\w.-]+$/.test(repo)) {
+      return res.status(400).json({ error: 'Invalid repo format' });
+    }
+    const response = await httpFetch(`https://api.github.com/repos/${repo}/git/trees/main?recursive=1`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'Ollama-Web'
+      },
+      timeout: 30000
+    });
+    if (!response.ok) {
+      return res.status(response.status).json({ error: `GitHub error: ${response.status}` });
+    }
+    const data = await response.json();
+    const files = (data.tree || []).filter(i => i.type === 'blob').map(i => ({ path: i.path, sha: i.sha, size: i.size }));
+    global.githubConfig = { token, repo, files, connectedAt: new Date().toISOString() };
+    res.json({ success: true, repo, files, count: files.length });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/github/file', async (req, res) => {
+  try {
+    const { path: filePath } = req.query;
+    if (!global.githubConfig || !global.githubConfig.token) {
+      return res.status(401).json({ error: 'GitHub not connected' });
+    }
+    const { token, repo } = global.githubConfig;
+    const response = await httpFetch(`https://api.github.com/repos/${repo}/contents/${filePath}`, {
+      headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'Ollama-Web' },
+      timeout: 30000
+    });
+    if (!response.ok) {
+      return res.status(response.status).json({ error: 'Failed to fetch file' });
+    }
+    const data = await response.json();
+    const content = Buffer.from(data.content, 'base64').toString('utf-8');
+    res.json({ path: filePath, content, sha: data.sha });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 

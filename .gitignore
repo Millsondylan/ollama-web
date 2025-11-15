@@ -1,4 +1,7 @@
 node_modules/
 storage/
-npm-debug.log*
-
+*.log
+.env
+.env.local
+github-config.json
+*.token

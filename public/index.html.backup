@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=5, user-scalable=yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#3b82f6" />
+    <title>Ollama Web Console</title>
+    <link rel="stylesheet" href="/styles.css?v=4.0" />
+  </head>
+  <body>
+    <!-- Minimal App Structure - Claude.ai/ChatGPT Style -->
+    <div class="app-layout">
+      <main id="page-root" class="page-root-minimal">
+        <!-- Pages get rendered here -->
+      </main>
+    </div>
+
+    <template id="chat-page">
+      <!-- Ultra-Modern Layout: Claude.ai/ChatGPT Style -->
+      <div class="app-container-ultra">
+        <!-- Redesigned Sidebar: All Controls Inside -->
+        <aside class="sidebar-ultra" id="chat-sidebar">
+          <!-- Logo & New Chat -->
+          <div class="sidebar-top">
+            <div class="sidebar-logo">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
+              </svg>
+              <span class="logo-text">Ollama</span>
+            </div>
+            <button id="new-chat-btn-ultra" class="new-chat-ultra">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path d="M12 5v14M5 12h14"/>
+              </svg>
+              <span>New chat</span>
+            </button>
+          </div>
+
+          <!-- Search Bar -->
+          <div class="sidebar-search">
+            <div class="search-container">
+              <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
+              </svg>
+              <input type="text" id="chat-search" class="search-input" placeholder="Search conversations..." />
+              <button id="search-clear" class="search-clear" style="display: none;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- New Chat Button -->
+          <div class="sidebar-actions">
+            <button id="new-chat-btn" class="new-chat-btn-modern">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 5v14M5 12h14"/>
+              </svg>
+              <span>Start New Conversation</span>
+            </button>
+          </div>
+
+          <!-- Sessions Content -->
+          <div class="sidebar-content-modern">
+            <!-- Quick Filters -->
+            <div class="session-filters">
+              <button class="filter-btn active" data-filter="all">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                </svg>
+                All
+              </button>
+              <button class="filter-btn" data-filter="today">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/>
+                </svg>
+                Today
+              </button>
+              <button class="filter-btn" data-filter="week">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+                </svg>
+                Week
+              </button>
+            </div>
+
+            <!-- Sessions List -->
+            <div class="sessions-container">
+              <div id="sessions-today" class="session-group">
+                <div class="session-group-header">
+                  <span class="group-title">Today</span>
+                  <span class="group-count">0</span>
+                </div>
+                <div class="session-group-list"></div>
+              </div>
+
+              <div id="sessions-yesterday" class="session-group">
+                <div class="session-group-header">
+                  <span class="group-title">Yesterday</span>
+                  <span class="group-count">0</span>
+                </div>
+                <div class="session-group-list"></div>
+              </div>
+
+              <div id="sessions-week" class="session-group">
+                <div class="session-group-header">
+                  <span class="group-title">This Week</span>
+                  <span class="group-count">0</span>
+                </div>
+                <div class="session-group-list"></div>
+              </div>
+
+              <div id="sessions-older" class="session-group">
+                <div class="session-group-header">
+                  <span class="group-title">Older</span>
+                  <span class="group-count">0</span>
+                </div>
+                <div class="session-group-list"></div>
+              </div>
+            </div>
+
+            <!-- Empty State -->
+            <div id="sessions-empty" class="sessions-empty" style="display: none;">
+              <div class="empty-icon">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                </svg>
+              </div>
+              <h4 class="empty-title">No conversations yet</h4>
+              <p class="empty-message">Start a new conversation to get began</p>
+            </div>
+          </div>
+
+          <!-- Legacy Session List (for backward compatibility) -->
+          <div id="chat-sessions-list" class="chat-sessions-list" style="display: none;"></div>
+        </aside>
+
+        <!-- Main chat area -->
+        <main class="chat-main">
+          <div class="chat-header-modern">
+            <div class="chat-header-content">
+              <!-- Left Section -->
+              <div class="chat-header-left">
+                <button id="sidebar-toggle-mobile" class="header-action-btn mobile-only" aria-label="Toggle sidebar">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 12h18M3 6h18M3 18h18"/>
+                  </svg>
+                </button>
+                <div class="chat-identity">
+                  <div class="chat-avatar">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+                    </svg>
+                  </div>
+                  <div class="chat-info">
+                    <h2 id="chat-title" class="chat-title">Chat Assistant</h2>
+                    <div class="chat-status">
+                      <span id="preset-indicator" class="status-badge">General Assistant</span>
+                      <span class="status-dot"></span>
+                      <span id="connection-indicator" class="connection-status">Online</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Right Section -->
+              <div class="chat-header-right">
+                <div class="header-controls">
+                  <!-- Model Selector -->
+                  <div class="control-group">
+                    <label class="control-label">Model</label>
+                    <div class="select-wrapper">
+                      <select id="model-selector" class="control-select"></select>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="6,9 12,15 18,9"/>
+                      </svg>
+                    </div>
+                  </div>
+
+                  <!-- Thinking Toggle -->
+                  <div class="control-group">
+                    <label class="toggle-control">
+                      <input type="checkbox" id="thinking-toggle" class="toggle-input" />
+                      <div class="toggle-slider">
+                        <div class="toggle-knob"></div>
+                      </div>
+                      <span class="toggle-label">Thinking</span>
+                    </label>
+                  </div>
+
+                  <!-- Structured Prompts Toggle -->
+                  <div class="control-group">
+                    <label class="toggle-control">
+                      <input type="checkbox" id="structured-prompt-toggle" class="toggle-input" checked />
+                      <div class="toggle-slider">
+                        <div class="toggle-knob"></div>
+                      </div>
+                      <span class="toggle-label">Structured</span>
+                    </label>
+                  </div>
+
+                  <!-- Theme Toggle -->
+                  <button id="theme-toggle" class="header-action-btn" aria-label="Toggle theme">
+                    <svg class="theme-icon-light" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+                    </svg>
+                    <svg class="theme-icon-dark" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: none;">
+                      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                    </svg>
+                  </button>
+
+                  <!-- Menu Button -->
+                  <button id="chat-menu-btn" class="header-action-btn" aria-label="Chat options">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Progress Bar for Loading States -->
+            <div id="header-progress" class="header-progress">
+              <div class="progress-bar"></div>
+            </div>
+          </div>
+
+          <!-- Dropdown menu for chat options -->
+          <div id="chat-menu" class="chat-menu" style="display: none;">
+            <button id="refresh-history" class="menu-item">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+              </svg>
+              Refresh History
+            </button>
+            <button id="clear-history" class="menu-item">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+              </svg>
+              Clear History
+            </button>
+            <div class="menu-divider"></div>
+            <div class="menu-section">
+              <label class="menu-label">Instruction Preset</label>
+              <select id="chat-instruction-preset-select" class="menu-select">
+                <option value="">Custom / manual</option>
+              </select>
+              <button type="button" id="chat-instruction-preset-apply" class="menu-btn">Apply Preset</button>
+              <p id="chat-instruction-preset-description" class="menu-description"></p>
+            </div>
+          </div>
+
+          <section id="ai-disclosure" class="ai-disclosure" role="status" aria-live="polite">
+            <div class="ai-disclosure-copy">
+              <p class="ai-disclosure-title">Local AI Assistant</p>
+              <p id="ai-disclosure-message" class="muted small-text"></p>
+            </div>
+            <button type="button" id="ai-disclosure-toggle" class="ghost-btn ghost-sm">
+              View instructions
+            </button>
+          </section>
+
+          <div id="chat-quick-actions" class="chat-quick-actions" role="group" aria-label="Suggested prompts"></div>
+
+          <div id="chat-history" class="chat-history"></div>
+
+          <!-- Typing Indicator -->
+          <div id="typing-indicator" class="typing-indicator" style="display: none;">
+            <div class="typing-bubble">
+              <div class="typing-avatar">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+                </svg>
+              </div>
+              <div class="typing-content">
+                <div class="typing-dots">
+                  <span class="dot"></span>
+                  <span class="dot"></span>
+                  <span class="dot"></span>
+                </div>
+                <span class="typing-text">Assistant is thinking...</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Modern Composer -->
+          <div class="composer-modern">
+            <div class="composer-container">
+              <!-- Attachment Preview (for future file uploads) -->
+              <div id="attachment-preview" class="attachment-preview" style="display: none;">
+                <div class="attachment-list">
+                  <!-- Attachments will be inserted here -->
+                </div>
+              </div>
+
+              <!-- Main Input Area -->
+              <div class="composer-input-area">
+                <div class="input-wrapper">
+                  <!-- Auto-expanding textarea -->
+                  <textarea
+                    id="chat-input"
+                    class="message-input"
+                    placeholder="Type your message..."
+                    aria-label="Chat message"
+                    rows="1"
+                  ></textarea>
+
+                  <!-- Input Actions -->
+                  <div class="input-actions">
+                    <!-- Attachment Button (for future) -->
+                    <button id="attach-btn" class="input-action-btn" aria-label="Attach file" style="display: none;">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66L9.64 16.2a2 2 0 0 1-2.83-2.83l8.49-8.4"/>
+                      </svg>
+                    </button>
+
+                    <!-- Send Button -->
+                    <button id="send-btn" class="send-btn" aria-label="Send message" disabled>
+                      <svg class="send-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22,2 15,22 11,13 2,9 22,2"/>
+                      </svg>
+                      <div class="loading-spinner" style="display: none;">
+                        <div class="spinner-ring"></div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Bottom Actions -->
+                <div class="composer-footer">
+                  <div class="composer-stats">
+                    <span id="char-counter" class="char-counter">0 / 4000</span>
+                  </div>
+
+                  <div class="composer-options">
+                    <button id="format-help" class="option-btn" aria-label="Formatting help">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                      </svg>
+                    </button>
+
+                    <span class="option-divider">•</span>
+
+                    <span class="send-shortcut">⌘ + Enter to send</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Enhanced Status Display -->
+            <div class="composer-status">
+              <div id="chat-error" class="status-message error-message" style="display: none;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
+                </svg>
+                <span class="message-text"></span>
+              </div>
+
+              <div id="thinking-status" class="status-message thinking-message" style="display: none;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>
+                </svg>
+                <span class="message-text"></span>
+              </div>
+
+              <div id="connection-status" class="status-message connection-message" style="display: none;">
+                <div class="connection-indicator"></div>
+                <span class="message-text">Connecting...</span>
+              </div>
+            </div>
+
+            <!-- Session Instructions Preview -->
+            <div id="session-instructions-preview" class="instructions-preview" style="display: none;">
+              <div class="instructions-content">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/>
+                </svg>
+                <span class="instructions-text"></span>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </template>
+
+    <template id="settings-page">
+      <section class="panel">
+        <h2>Settings & Custom Instructions</h2>
+        <form id="settings-form" class="settings-form">
+          <label>
+            Model name
+            <input type="text" name="model" required />
+          </label>
+          <label>
+            Ollama endpoint (OLLAMA_HOST)
+            <input type="url" name="apiEndpoint" placeholder="http://127.0.0.1:11434" />
+          </label>
+          <label>
+            Backend base URL (for this UI)
+            <input type="url" name="backendBaseUrl" placeholder="http://localhost:3000/" />
+          </label>
+          <label>
+            Theme
+            <select name="theme">
+              <option value="system">System</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
+          <label>
+            Messages to include per prompt
+            <input type="number" min="1" name="maxHistory" />
+          </label>
+          <div class="instruction-preset-control">
+            <label>
+              Instruction preset
+              <select id="instruction-preset-select">
+                <option value="">Custom / manual</option>
+              </select>
+            </label>
+            <button type="button" id="instruction-preset-apply" class="ghost-btn">Apply preset</button>
+          </div>
+          <p id="instruction-preset-description" class="muted small-text"></p>
+          <label>
+            System instructions
+            <textarea name="systemInstructions" rows="4"></textarea>
+          </label>
+          <button type="submit">Save settings</button>
+        </form>
+      </section>
+
+      <section class="panel">
+        <h3>Custom Pages</h3>
+        <p>Register extra pages by providing a label and a relative or absolute URL.</p>
+        <form id="custom-page-form" class="custom-page-form">
+          <label>
+            Page label
+            <input type="text" name="label" placeholder="Docs" required />
+          </label>
+          <label>
+            Page URL
+            <input type="text" name="url" placeholder="/pages/docs.html" required />
+          </label>
+          <button type="submit">Add page</button>
+        </form>
+        <ul id="custom-page-list" class="custom-page-list"></ul>
+      </section>
+
+      <section class="panel">
+        <h3>Custom API Endpoint</h3>
+        <p>Forward ad-hoc JSON payloads through the backend proxy.</p>
+        <form id="proxy-form" class="settings-form">
+          <label>
+            Target URL
+            <input type="text" name="url" placeholder="http://localhost:11434/api/tags" required />
+          </label>
+          <label>
+            Method
+            <select name="method">
+              <option value="GET">GET</option>
+              <option value="POST">POST</option>
+            </select>
+          </label>
+          <label>
+            JSON payload (optional)
+            <textarea name="payload" rows="3" placeholder='{"hello":"world"}'></textarea>
+          </label>
+          <button type="submit">Send request</button>
+        </form>
+        <pre id="proxy-response" class="panel proxy-response"></pre>
+      </section>
+    </template>
+
+    <template id="history-page">
+      <section class="panel">
+        <div class="panel-header panel-header-stacked">
+          <h2>Server History</h2>
+          <label class="session-select">
+            <span>Session</span>
+            <select id="history-session-select"></select>
+          </label>
+        </div>
+        <div id="server-history"></div>
+      </section>
+      <section class="panel">
+        <h2>Local History</h2>
+        <div id="local-history"></div>
+      </section>
+    </template>
+
+    <template id="sessions-page">
+      <section class="panel">
+        <div class="panel-header panel-header-stacked">
+          <h2>Saved Sessions</h2>
+          <p class="muted small-text">Customize instructions, attach files, and switch contexts quickly.</p>
+        </div>
+        <div id="session-list" class="session-list"></div>
+      </section>
+      <section class="panel">
+        <h2 id="session-form-title">Create Session</h2>
+        <form id="session-form" class="settings-form">
+          <input type="hidden" name="sessionId" />
+          <label>
+            Session name
+            <input type="text" name="name" placeholder="My Workspace" required />
+          </label>
+          <div class="instruction-preset-control">
+            <label>
+              Instruction preset
+              <select id="session-instruction-preset-select">
+                <option value="">Custom / manual</option>
+              </select>
+            </label>
+            <button type="button" id="session-instruction-preset-apply" class="ghost-btn">Apply preset</button>
+          </div>
+          <p id="session-instruction-preset-description" class="muted small-text"></p>
+          <label>
+            Custom instructions
+            <textarea name="instructions" rows="4" placeholder="How should the assistant behave?"></textarea>
+          </label>
+          <label>
+            Additional context (text)
+            <textarea name="attachmentText" rows="4" placeholder="Paste notes or requirements..."></textarea>
+          </label>
+          <label>
+            Attach files (text-based)
+            <input type="file" id="session-files" name="files" multiple accept=".txt,.md,.mdx,.json,.csv,.log,.yaml,.yml,.xml,.html,.js,.ts,.py" />
+            <span class="muted small-text">Existing attachments remain unless you upload new files or text.</span>
+          </label>
+          <div class="form-actions">
+            <button type="submit" id="session-form-submit">Save session</button>
+            <button type="button" id="session-form-cancel" class="ghost-btn">Reset</button>
+          </div>
+        </form>
+      </section>
+    </template>
+
+    <template id="api-page">
+      <section class="panel">
+        <div class="panel-header panel-header-stacked">
+          <h2>API Access</h2>
+          <p class="muted small-text">Call the backend from your own tools using a generated key.</p>
+        </div>
+        <div class="api-base-url">
+          <div>
+            <p class="muted small-text">Base URL</p>
+            <code id="api-base-url"></code>
+          </div>
+          <button id="copy-base-url" class="ghost-btn">Copy</button>
+        </div>
+        <pre id="api-sample" class="code-block"></pre>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header panel-header-stacked">
+          <h3>API Keys</h3>
+          <p class="muted small-text">Keys authenticate requests sent with `Authorization: Bearer &lt;key&gt;`.</p>
+        </div>
+        <div class="callout" id="api-key-secret"></div>
+        <form id="api-key-form" class="inline-form">
+          <input type="text" name="name" placeholder="Key label (optional)" />
+          <button type="submit">Generate key</button>
+        </form>
+        <div id="api-key-empty" class="muted small-text">No keys yet.</div>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Created</th>
+                <th>Last used</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="api-key-list"></tbody>
+          </table>
+        </div>
+      </section>
+    </template>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
+

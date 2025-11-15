@@ -8,127 +8,330 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="theme-color" content="#3b82f6" />
     <title>Ollama Web Console</title>
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/styles.css?v=20.0" />
   </head>
   <body>
-    <header class="app-header">
-      <div>
-        <h1>Ollama</h1>
-        <p>Chat locally, scale globally. Powered by Qwen.</p>
-      </div>
-      <div class="status-badges">
-        <span id="connection-status" class="badge">offline</span>
-        <span id="active-model" class="badge badge-muted">model: —</span>
-      </div>
-    </header>
+    <!-- Minimal App Structure - Claude.ai/ChatGPT Style -->
+    <div class="app-layout">
+      <main id="page-root" class="page-root-minimal">
+        <!-- Pages get rendered here -->
+      </main>
+    </div>
 
-    <nav class="app-nav" id="page-nav"></nav>
-
-    <main id="page-root" class="page-root">
-      <!-- Pages get rendered here -->
-    </main>
+    <!-- Hidden compatibility elements -->
+    <div style="display: none;">
+      <nav id="page-nav"></nav>
+    </div>
 
     <template id="chat-page">
-      <div class="chat-container">
-        <!-- Sidebar with chat history -->
-        <aside class="chat-sidebar" id="chat-sidebar">
-          <div class="sidebar-header">
-            <button id="new-chat-btn" class="new-chat-btn">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 5v14M5 12h14"/>
-              </svg>
-              New Chat
-            </button>
-            <button id="sidebar-toggle" class="sidebar-toggle" aria-label="Toggle sidebar">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M3 12h18M3 6h18M3 18h18"/>
-              </svg>
-            </button>
-          </div>
-          <div class="sidebar-content">
-            <div id="chat-sessions-list" class="chat-sessions-list"></div>
-          </div>
-        </aside>
+<!-- Ultra-Modern Chat Template: Claude.ai/ChatGPT Style -->
+<div class="app-ultra">
 
-        <!-- Main chat area -->
-        <main class="chat-main">
-          <div class="chat-header">
-            <div class="chat-header-left">
-              <button id="sidebar-toggle-mobile" class="sidebar-toggle-mobile" aria-label="Toggle sidebar">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M3 12h18M3 6h18M3 18h18"/>
-                </svg>
-              </button>
-              <div class="chat-title-container">
-                <h2 id="chat-title">Chat</h2>
-                <span id="preset-indicator" class="preset-indicator">Assistant</span>
-              </div>
-            </div>
-            <div class="chat-header-actions">
-              <label class="model-select">
-                <span>Model</span>
-                <select id="model-selector"></select>
-              </label>
-              <label class="thinking-toggle">
-                <input type="checkbox" id="thinking-toggle" />
-                <span>Thinking</span>
-              </label>
-              <button id="chat-menu-btn" class="icon-btn" aria-label="Chat options">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/>
-                </svg>
-              </button>
-            </div>
-          </div>
+  <!-- Modern Sidebar: All Controls & Navigation Inside -->
+  <aside class="sidebar-ultra" id="chat-sidebar">
 
-          <!-- Dropdown menu for chat options -->
-          <div id="chat-menu" class="chat-menu" style="display: none;">
-            <button id="refresh-history" class="menu-item">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
-              </svg>
-              Refresh History
-            </button>
-            <button id="clear-history" class="menu-item">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-              </svg>
-              Clear History
-            </button>
-            <div class="menu-divider"></div>
-            <div class="menu-section">
-              <label class="menu-label">Instruction Preset</label>
-              <select id="chat-instruction-preset-select" class="menu-select">
-                <option value="">Custom / manual</option>
-              </select>
-              <button type="button" id="chat-instruction-preset-apply" class="menu-btn">Apply Preset</button>
-              <p id="chat-instruction-preset-description" class="menu-description"></p>
-            </div>
-          </div>
-
-          <div id="chat-history" class="chat-history"></div>
-          <div class="composer">
-            <textarea
-              id="chat-input"
-              rows="3"
-              placeholder="Ask anything..."
-              aria-label="Prompt"
-            ></textarea>
-            <div class="composer-actions">
-              <button id="send-btn">Send</button>
-              <div id="thinking-indicator" class="spinner" aria-hidden="true">
-                <span></span><span></span><span></span>
-              </div>
-            </div>
-          </div>
-          <p id="chat-error" class="error-text" role="alert"></p>
-          <p id="thinking-status" class="thinking-status small-text"></p>
-          <p id="session-instructions-preview" class="muted small-text" style="display: none;"></p>
-        </main>
+    <!-- Top: Logo + New Chat -->
+    <div class="sidebar-header-ultra">
+      <div class="logo-ultra">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
+        </svg>
+        <span>Ollama</span>
       </div>
+      <button id="new-chat-btn" class="btn-new-chat-ultra">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Sessions List (Simplified) -->
+    <div class="sessions-ultra">
+      <div id="sessions-today" class="session-group-ultra">
+        <div class="session-group-title-ultra">Today</div>
+        <div class="session-list-ultra"></div>
+      </div>
+      <div id="sessions-yesterday" class="session-group-ultra">
+        <div class="session-group-title-ultra">Yesterday</div>
+        <div class="session-list-ultra"></div>
+      </div>
+      <div id="sessions-week" class="session-group-ultra">
+        <div class="session-group-title-ultra">Previous 7 Days</div>
+        <div class="session-list-ultra"></div>
+      </div>
+      <div id="sessions-older" class="session-group-ultra">
+        <div class="session-group-title-ultra">Previous 30 Days</div>
+        <div class="session-list-ultra"></div>
+      </div>
+    </div>
+
+    <!-- Bottom: Navigation + Settings -->
+    <div class="sidebar-footer-ultra">
+      <!-- Settings Button (opens modal with all controls) -->
+      <button id="settings-btn-ultra" class="sidebar-btn-ultra">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v10M12 1A11 11 0 0 0 1 12h6m6 0H1M12 1a11 11 0 0 1 11 11h-6m0 0H1"/>
+        </svg>
+        <span>Settings</span>
+      </button>
+
+      <!-- Navigation Links -->
+      <button id="nav-sessions-ultra" class="sidebar-btn-ultra">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+        <span>Sessions</span>
+      </button>
+
+      <button id="nav-history-ultra" class="sidebar-btn-ultra">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/>
+        </svg>
+        <span>History</span>
+      </button>
+
+      <button id="nav-api-ultra" class="sidebar-btn-ultra">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+        </svg>
+        <span>API</span>
+      </button>
+
+      <!-- Theme Toggle -->
+      <button id="theme-toggle" class="sidebar-btn-ultra">
+        <svg class="theme-icon-light" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+        </svg>
+        <svg class="theme-icon-dark" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: none;">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+        </svg>
+        <span class="theme-label-light">Dark mode</span>
+        <span class="theme-label-dark" style="display: none;">Light mode</span>
+      </button>
+    </div>
+
+    <!-- Hidden elements for compatibility -->
+    <div style="display: none;">
+      <div id="chat-sessions-list"></div>
+      <input type="text" id="chat-search" />
+      <button id="search-clear"></button>
+      <button id="sidebar-toggle"></button>
+      <span id="session-count"></span>
+    </div>
+  </aside>
+
+  <!-- Main Chat Area: CLEAN - No Headers! -->
+  <main class="chat-area-ultra">
+
+    <!-- Mobile Sidebar Toggle (Top-Left Corner Only) -->
+    <button id="sidebar-toggle-mobile" class="mobile-toggle-ultra">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M3 12h18M3 6h18M3 18h18"/>
+      </svg>
+    </button>
+
+    <!-- Chat Messages (Clean, No Headers) -->
+    <div id="chat-history" class="chat-history-ultra"></div>
+
+    <!-- Typing Indicator -->
+    <div id="typing-indicator" class="typing-indicator-ultra" style="display: none;">
+      <div class="typing-content-ultra">
+        <div class="typing-dots-ultra">
+          <span></span><span></span><span></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modern Floating Composer -->
+    <div class="composer-ultra">
+      <div class="composer-container-ultra">
+        <div class="composer-input-wrapper-ultra">
+          <textarea
+            id="chat-input"
+            class="input-ultra"
+            placeholder="Message Ollama..."
+            aria-label="Chat message"
+            rows="1"
+          ></textarea>
+
+          <button id="send-btn" class="send-btn-ultra" aria-label="Send message" disabled>
+            <svg class="send-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+            </svg>
+            <div class="loading-spinner" style="display: none;">
+              <div class="spinner-ring"></div>
+            </div>
+          </button>
+        </div>
+
+        <div class="composer-footer-ultra">
+          <span id="char-counter" class="char-count-ultra">0 / 4000</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Hidden elements for compatibility -->
+    <div style="display: none;">
+      <div id="chat-quick-actions"></div>
+      <div id="ai-disclosure"></div>
+      <div id="ai-disclosure-message"></div>
+      <button id="ai-disclosure-toggle"></button>
+      <div id="chat-error"></div>
+      <div id="thinking-status"></div>
+      <div id="connection-status"></div>
+      <div id="session-instructions-preview"></div>
+      <div id="attachment-preview"></div>
+      <button id="attach-btn"></button>
+      <button id="format-help"></button>
+      <span class="send-shortcut"></span>
+      <div id="chat-title"></div>
+      <div id="preset-indicator"></div>
+      <div id="connection-indicator"></div>
+      <button id="chat-menu-btn"></button>
+      <div id="chat-menu"></div>
+      <button id="refresh-history"></button>
+      <button id="clear-history"></button>
+      <select id="chat-instruction-preset-select"></select>
+      <button id="chat-instruction-preset-apply"></button>
+      <div id="chat-instruction-preset-description"></div>
+      <div id="header-progress"></div>
+    </div>
+  </main>
+
+  <!-- Settings Modal (Hidden by default) -->
+  <div id="settings-modal-ultra" class="modal-ultra" style="display: none;">
+    <div class="modal-content-ultra">
+      <div class="modal-header-ultra">
+        <h2>Settings</h2>
+        <button id="close-settings-ultra" class="close-btn-ultra">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="modal-body-ultra">
+        <!-- SECTION: Model & Behavior -->
+        <div class="settings-section-ultra">
+          <h3 class="section-title-ultra">Model & Behavior</h3>
+
+          <div class="setting-group-ultra">
+            <label class="setting-label-ultra">Active Model</label>
+            <select id="model-selector" class="setting-select-ultra">
+              <option>Loading models...</option>
+            </select>
+            <div id="active-model-display" class="status-display-ultra">
+              <small style="color: var(--text-secondary);">Current: <span id="active-model">—</span></small>
+            </div>
+          </div>
+
+          <div class="setting-group-ultra">
+            <label class="setting-toggle-ultra">
+              <div>
+                <div class="setting-label-ultra">Show Thinking Process</div>
+                <div class="setting-description-ultra">Display the model's reasoning and thought process</div>
+              </div>
+              <input type="checkbox" id="thinking-toggle" class="toggle-checkbox-ultra" />
+              <div class="toggle-switch-ultra"></div>
+            </label>
+          </div>
+        </div>
+
+        <!-- SECTION: Prompts & Enhancement -->
+        <div class="settings-section-ultra">
+          <h3 class="section-title-ultra">Prompt Processing</h3>
+
+          <div class="setting-group-ultra">
+            <label class="setting-toggle-ultra">
+              <div>
+                <div class="setting-label-ultra">Parse XML Structures</div>
+                <div class="setting-description-ultra">Extract and display XML-tagged content from responses</div>
+              </div>
+              <input type="checkbox" id="structured-prompt-toggle" class="toggle-checkbox-ultra" />
+              <div class="toggle-switch-ultra"></div>
+            </label>
+          </div>
+
+          <div class="setting-group-ultra">
+            <label class="setting-toggle-ultra">
+              <div>
+                <div class="setting-label-ultra">AI Coder Mode</div>
+                <div class="setting-description-ultra">Auto-enhance prompts with discovery→plan→implement→verify workflow</div>
+              </div>
+              <input type="checkbox" id="ai-coder-toggle" class="toggle-checkbox-ultra" checked />
+              <div class="toggle-switch-ultra"></div>
+            </label>
+          </div>
+        </div>
+
+        <!-- SECTION: Instructions -->
+        <div class="settings-section-ultra">
+          <h3 class="section-title-ultra">Instructions & Context</h3>
+
+          <div class="setting-group-ultra">
+            <label class="setting-label-ultra">Session Instructions</label>
+            <select id="chat-instruction-preset-select" class="setting-select-ultra">
+              <option value="">Loading presets...</option>
+            </select>
+            <div id="chat-instruction-preset-description" class="setting-description-ultra" style="margin-top: 0.5rem; padding: 0.75rem; background: var(--bg-primary); border-radius: 0.5rem; border-left: 3px solid var(--accent); font-size: 0.875rem;"></div>
+          </div>
+        </div>
+
+        <!-- SECTION: Connection -->
+        <div class="settings-section-ultra">
+          <h3 class="section-title-ultra">Status</h3>
+
+          <div class="setting-group-ultra">
+            <div class="setting-label-ultra">Connection</div>
+            <div id="connection-status-display" class="status-display-ultra">
+              <span id="connection-status" class="status-badge-ultra">Checking...</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECTION: GitHub Integration -->
+        <div class="settings-section-ultra">
+          <h3 class="section-title-ultra">GitHub Integration</h3>
+
+          <div class="setting-group-ultra">
+            <label class="setting-label-ultra">GitHub Personal Access Token</label>
+            <input type="password" id="github-token-input" class="setting-input-ultra" placeholder="ghp_xxxxxxxxxxxx" />
+            <div class="setting-description-ultra">
+              Create a token at github.com/settings/tokens with 'repo' scope
+            </div>
+          </div>
+
+          <div class="setting-group-ultra">
+            <label class="setting-label-ultra">Repository</label>
+            <input type="text" id="github-repo-input" class="setting-input-ultra" placeholder="username/repo-name" />
+            <button id="github-connect-btn" class="btn-primary-ultra" type="button">Connect Repository</button>
+          </div>
+
+          <div id="github-status" class="status-display-ultra" style="display: none;">
+            <span id="github-status-text"></span>
+          </div>
+
+          <div id="github-files-preview" style="display: none; margin-top: 1rem; padding: 1rem; background: var(--bg); border-radius: 0.5rem; max-height: 200px; overflow-y: auto;">
+            <div class="setting-label-ultra" style="margin-bottom: 0.5rem;">Connected Files:</div>
+            <div id="github-files-list" style="font-size: 0.8125rem; color: var(--text-secondary);"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
     </template>
 
     <template id="settings-page">
+      <div class="page-with-nav">
+        <button class="back-to-chat-btn" onclick="window.navigateToPage('chat')">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 12H5M12 19l-7-7 7-7"/>
+          </svg>
+          Back to Chat
+        </button>
+      </div>
       <section class="panel">
         <h2>Settings & Custom Instructions</h2>
         <form id="settings-form" class="settings-form">
@@ -217,6 +420,14 @@
     </template>
 
     <template id="history-page">
+      <div class="page-with-nav">
+        <button class="back-to-chat-btn" onclick="window.navigateToPage('chat')">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 12H5M12 19l-7-7 7-7"/>
+          </svg>
+          Back to Chat
+        </button>
+      </div>
       <section class="panel">
         <div class="panel-header panel-header-stacked">
           <h2>Server History</h2>
@@ -234,6 +445,14 @@
     </template>
 
     <template id="sessions-page">
+      <div class="page-with-nav">
+        <button class="back-to-chat-btn" onclick="window.navigateToPage('chat')">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 12H5M12 19l-7-7 7-7"/>
+          </svg>
+          Back to Chat
+        </button>
+      </div>
       <section class="panel">
         <div class="panel-header panel-header-stacked">
           <h2>Saved Sessions</h2>
@@ -281,6 +500,14 @@
     </template>
 
     <template id="api-page">
+      <div class="page-with-nav">
+        <button class="back-to-chat-btn" onclick="window.navigateToPage('chat')">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 12H5M12 19l-7-7 7-7"/>
+          </svg>
+          Back to Chat
+        </button>
+      </div>
       <section class="panel">
         <div class="panel-header panel-header-stacked">
           <h2>API Access</h2>
