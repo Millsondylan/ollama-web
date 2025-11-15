@@ -909,6 +909,11 @@ app.post('/api/chat', async (req, res) => {
   const messageForAI = (useEnhanced && enhancedMessage) ? enhancedMessage : message;
   const messageForHistory = message;
 
+  console.log('[API /api/chat] useEnhanced:', useEnhanced);
+  console.log('[API /api/chat] Original message:', message);
+  console.log('[API /api/chat] Enhanced message:', enhancedMessage);
+  console.log('[API /api/chat] Using for AI:', messageForAI.substring(0, 200) + '...');
+
   const providedKey = extractApiKey(req);
   const keyRecord = providedKey ? verifyApiKey(providedKey) : null;
   if (providedKey && !keyRecord) {
@@ -1175,6 +1180,11 @@ app.post('/api/chat/stream', async (req, res) => {
   const { message, enhancedMessage, useEnhanced, model, instructions, apiEndpoint, includeHistory, sessionId } = req.body || {};
   const messageForAI = (useEnhanced && enhancedMessage) ? enhancedMessage : message;
   const messageForHistory = message;
+
+  console.log('[API /api/chat/stream] useEnhanced:', useEnhanced);
+  console.log('[API /api/chat/stream] Original message:', message);
+  console.log('[API /api/chat/stream] Enhanced message:', enhancedMessage);
+  console.log('[API /api/chat/stream] Using for AI:', messageForAI.substring(0, 200) + '...');
 
   if (!message) {
     return res.status(400).json({ error: 'Message is required' });
