@@ -141,9 +141,14 @@ async function bootstrapSettings() {
     persistInstructionPresets(state.instructionPresets);
     refreshInstructionPresetControls();
     const normalizedBase = normalizeBaseUrl(data.current?.backendBaseUrl);
+    // Preserve client-side settings like aiCoderEnabled
+    const preservedSettings = {
+      aiCoderEnabled: state.settings?.aiCoderEnabled !== false
+    };
     state.settings = {
       ...data.current,
-      backendBaseUrl: normalizedBase
+      backendBaseUrl: normalizedBase,
+      ...preservedSettings
     };
     state.baseUrl = normalizedBase;
     applyTheme(state.settings.theme);
@@ -173,9 +178,12 @@ async function bootstrapSettings() {
     }
     refreshInstructionPresetControls();
     state.baseUrl = normalizeBaseUrl(state.settings?.backendBaseUrl);
+    // Preserve aiCoderEnabled during error recovery
+    const aiCoderSetting = state.settings?.aiCoderEnabled;
     state.settings = {
       ...(state.settings || {}),
-      backendBaseUrl: state.baseUrl
+      backendBaseUrl: state.baseUrl,
+      aiCoderEnabled: aiCoderSetting !== false
     };
     notifySettingsSubscribers();
   }
@@ -3007,14 +3015,25 @@ function enhanceAICoderPrompt(userMessage) {
   if (isCodingTask) {
     const enhanced = `${spellChecked}
 
-EXECUTE AUTONOMOUSLY:
-1. Search the codebase to find all relevant files - don't ask, just do it
-2. Read the files to understand how things work - don't ask, just do it
-3. Implement the complete solution following existing patterns - don't ask, just do it
-4. Test your changes and fix any errors - don't ask, just do it
-5. Report what you did when finished - don't ask what to do next
+⚡ AUTONOMOUS EXECUTION DIRECTIVE:
+You must execute this task COMPLETELY and INDEPENDENTLY. Do NOT provide analysis, requirements, or plans. Do NOT ask for confirmation. Do NOT list "Here's what I'll do" or "Would you like me to...". Simply WORK and REPORT.
 
-NEVER ask "would you like me to..." or "should I..." - just complete the full task.`;
+REQUIRED WORKFLOW:
+1. SEARCH: Find relevant files (don't ask permission, just search)
+2. READ: Understand patterns (examine existing code structure)
+3. IMPLEMENT: Write the complete solution (don't explain before coding)
+4. TEST: Verify changes work (run tests, check output)
+5. REPORT: Tell what you did (one paragraph, concisely)
+
+FORBIDDEN RESPONSES:
+- Analysis of requirements ❌
+- "Here's what I'll do:" ❌
+- "Would you like me to..." ❌
+- Lists of steps before implementing ❌
+- Multiple options to choose from ❌
+- "Let me know if you want me to continue" ❌
+
+Just implement the feature end-to-end. Test it. Report results.`;
     console.log('[AI CODER] Enhanced coding task:', enhanced);
     return enhanced;
   }
