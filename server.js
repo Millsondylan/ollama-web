@@ -40,7 +40,7 @@ const OLLAMA_GENERATION_TIMEOUT_MS = Number(process.env.OLLAMA_GENERATION_TIMEOU
 const OLLAMA_STREAM_TIMEOUT_MS =
   process.env.OLLAMA_STREAM_TIMEOUT_MS !== undefined
     ? Math.max(Number(process.env.OLLAMA_STREAM_TIMEOUT_MS) || 0, 0)
-    : 30000;
+    : 120000;
 const OLLAMA_UNAVAILABLE_MESSAGE = 'Cannot connect to Ollama service. Is the Ollama service running?';
 const MAX_GENERATE_IMAGES = Number(process.env.MAX_GENERATE_IMAGES || 4);
 const STREAM_HEARTBEAT_INTERVAL_MS = Number(process.env.STREAM_HEARTBEAT_INTERVAL_MS || 15000);
