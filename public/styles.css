@@ -188,7 +188,7 @@ body {
 }
 
 /* ===== MESSAGES ===== */
-.messages-ultra {
+.chat-history-ultra, #chat-history {
   flex: 1;
   overflow-y: auto;
   padding: var(--space);
@@ -197,10 +197,66 @@ body {
   gap: var(--space);
 }
 
-.message-ultra {
+/* Message containers */
+.message-bubble-user,
+.message-bubble-assistant {
   display: flex;
-  margin-bottom: 0.5rem;
   animation: slideIn 0.3s ease-out;
+  margin-bottom: 0.5rem;
+}
+
+.message-bubble-user {
+  justify-content: flex-end;
+}
+
+.message-bubble-user .message-content {
+  background: var(--primary);
+  color: white;
+  border-radius: 12px 4px 12px 12px;
+}
+
+.message-bubble-assistant {
+  justify-content: flex-start;
+  gap: 0.5rem;
+}
+
+.message-bubble-assistant .message-content {
+  background: var(--secondary);
+  color: var(--dark-text);
+  border-radius: 4px 12px 12px 12px;
+}
+
+.message-bubble-assistant .avatar-ultra {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.assistant-content-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex: 1;
+}
+
+.message-content {
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  word-wrap: break-word;
+  line-height: 1.4;
+  max-width: 80%;
+}
+
+.message-bubble-user .message-content {
+  max-width: 85%;
 }
 
 @keyframes slideIn {
@@ -212,30 +268,6 @@ body {
     opacity: 1;
     transform: translateY(0);
   }
-}
-
-.message-ultra.user {
-  justify-content: flex-end;
-}
-
-.message-content {
-  max-width: 70%;
-  padding: 0.75rem 1rem;
-  border-radius: 12px;
-  word-wrap: break-word;
-  line-height: 1.4;
-}
-
-.message-ultra.user .message-content {
-  background: var(--primary);
-  color: white;
-  border-radius: 12px 4px 12px 12px;
-}
-
-.message-ultra.assistant .message-content {
-  background: var(--secondary);
-  color: var(--dark-text);
-  border-radius: 4px 12px 12px 12px;
 }
 
 .thinking-section {
@@ -274,13 +306,14 @@ body {
 }
 
 /* ===== COMPOSER ===== */
-.composer-ultra {
+.composer-ultra, .composer {
   padding: var(--space);
   border-top: 1px solid var(--border);
   background: white;
 }
 
-[data-theme='dark'] .composer-ultra {
+[data-theme='dark'] .composer-ultra,
+[data-theme='dark'] .composer {
   background: #1a1a1a;
 }
 
@@ -290,7 +323,7 @@ body {
   align-items: flex-end;
 }
 
-.composer-input-ultra {
+.input-ultra, .composer-input-ultra {
   flex: 1;
   padding: 0.75rem;
   background: var(--secondary);
@@ -301,9 +334,10 @@ body {
   font-family: inherit;
   color: var(--dark-text);
   transition: border 0.2s;
+  font-size: 15px;
 }
 
-.composer-input-ultra:focus {
+.input-ultra:focus, .composer-input-ultra:focus {
   outline: none;
   border-color: var(--primary);
   box-shadow: 0 0 0 2px rgba(0, 132, 255, 0.1);
