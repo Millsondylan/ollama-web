@@ -758,6 +758,19 @@ app.use(
     limit: '5mb'
   })
 );
+
+// NO CACHE for CSS and JS - always serve fresh
+app.use((req, res, next) => {
+  if (req.url.endsWith('.css') || req.url.endsWith('.js')) {
+    res.set({
+      'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    });
+  }
+  next();
+});
+
 app.use(express.static(path.join(__dirnameResolved, 'public')));
 
 function buildPrompt(message, systemInstructions, contextMessages = []) {

@@ -10,9 +10,8 @@ const RUNTIME_CACHE = 'ollama-web-runtime-v1';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
-  '/styles.css',
-  '/app.js',
   '/manifest.json'
+  // NOTE: styles.css and app.js are NOT cached - served fresh every time
 ];
 
 // API routes that should never be cached
@@ -84,10 +83,19 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Cache-first strategy for static assets
+  // ALWAYS FRESH for CSS/JS - never cache these
   if (request.method === 'GET' && (
     url.pathname.endsWith('.css') ||
-    url.pathname.endsWith('.js') ||
+    url.pathname.endsWith('.js')
+  )) {
+    event.respondWith(
+      fetch(request).catch(() => new Response('Offline', { status: 503 }))
+    );
+    return;
+  }
+
+  // Cache-first strategy for HTML and static assets
+  if (request.method === 'GET' && (
     url.pathname.endsWith('.html') ||
     url.pathname.endsWith('.json') ||
     url.pathname === '/'
