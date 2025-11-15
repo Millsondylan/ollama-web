@@ -765,58 +765,6 @@ function attachChatHandlers() {
     });
   }
 
-  // Mobile hamburger menu handler - SIMPLE AND RELIABLE
-  const mobileToggle = document.getElementById('sidebar-toggle-mobile');
-  const sidebar = document.getElementById('chat-sidebar');
-
-  // Create overlay if it doesn't exist
-  if (!document.querySelector('.sidebar-overlay')) {
-    const overlay = document.createElement('div');
-    overlay.className = 'sidebar-overlay';
-    document.body.appendChild(overlay);
-  }
-
-  if (mobileToggle && sidebar) {
-    // Toggle sidebar open/closed on hamburger click
-    mobileToggle.addEventListener('click', (e) => {
-      e.stopPropagation();
-      sidebar.classList.toggle('open');
-      const overlay = document.querySelector('.sidebar-overlay');
-      if (overlay) {
-        overlay.classList.toggle('visible');
-      }
-    });
-
-    // Close sidebar when clicking overlay
-    document.addEventListener('click', (e) => {
-      const overlay = document.querySelector('.sidebar-overlay');
-      if (overlay && overlay.classList.contains('visible') &&
-          !sidebar.contains(e.target) && !mobileToggle.contains(e.target)) {
-        sidebar.classList.remove('open');
-        overlay.classList.remove('visible');
-      }
-    });
-
-    // Close sidebar when clicking a session item
-    const sessionItems = document.querySelectorAll('.session-item-ultra');
-    sessionItems.forEach((item) => {
-      item.addEventListener('click', () => {
-        sidebar.classList.remove('open');
-        const overlay = document.querySelector('.sidebar-overlay');
-        if (overlay) overlay.classList.remove('visible');
-      });
-    });
-
-    // Close sidebar on Escape key
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') {
-        sidebar.classList.remove('open');
-        const overlay = document.querySelector('.sidebar-overlay');
-        if (overlay) overlay.classList.remove('visible');
-      }
-    });
-  }
-
   // Chat menu toggle
   if (chatMenuBtn && chatMenu) {
     chatMenuBtn.addEventListener('click', () => {
