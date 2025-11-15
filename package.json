@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "nodemon server.js",
     "start": "node server.js",
-    "verify": "node scripts/verify.js"
+    "verify": "node scripts/verify.js",
+    "test": "./scripts/run_full_test_suite.sh",
+    "test:api": "node scripts/verify.js",
+    "test:e2e": "node scripts/e2e-test-runner.js"
   },
   "keywords": [],
   "author": "",
