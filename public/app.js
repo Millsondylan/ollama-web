@@ -697,8 +697,8 @@ function attachChatHandlers() {
   // AI Coder enhancement toggle
   const aiCoderToggle = document.getElementById('ai-coder-toggle');
   if (aiCoderToggle) {
-    // Load saved preference (default to TRUE)
-    const aiCoderDefault = state.settings?.aiCoderEnabled !== false; // Default enabled
+    // Load saved preference (default to FALSE - disabled by default)
+    const aiCoderDefault = state.settings?.aiCoderEnabled === true; // Default disabled
     aiCoderToggle.checked = aiCoderDefault;
     state.settings.aiCoderEnabled = aiCoderDefault;
 
