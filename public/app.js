@@ -765,6 +765,61 @@ function attachChatHandlers() {
     });
   }
 
+  // Mobile hamburger menu handler (new design)
+  const mobileToggle = document.getElementById('sidebar-toggle-mobile') || document.querySelector('.mobile-toggle-ultra');
+  const sidebar = document.getElementById('chat-sidebar') || document.querySelector('.sidebar-ultra');
+
+  if (mobileToggle && sidebar) {
+    mobileToggle.addEventListener('click', () => {
+      sidebar.classList.toggle('open');
+      // Create overlay if it doesn't exist
+      let overlay = document.querySelector('.sidebar-overlay');
+      if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.className = 'sidebar-overlay';
+        document.body.appendChild(overlay);
+      }
+
+      if (sidebar.classList.contains('open')) {
+        overlay.classList.remove('hidden');
+      } else {
+        overlay.classList.add('hidden');
+      }
+    });
+  }
+
+  // Close sidebar when clicking overlay
+  document.addEventListener('click', (e) => {
+    const sidebar = document.querySelector('.sidebar-ultra');
+    const mobileToggle = document.querySelector('.mobile-toggle-ultra');
+    const overlay = document.querySelector('.sidebar-overlay');
+
+    if (overlay && !overlay.classList.contains('hidden') && !sidebar.contains(e.target) && !mobileToggle.contains(e.target)) {
+      sidebar.classList.remove('open');
+      overlay.classList.add('hidden');
+    }
+  });
+
+  // Close sidebar when clicking a session item
+  document.addEventListener('click', (e) => {
+    if (e.target.classList.contains('session-item-ultra')) {
+      const sidebar = document.querySelector('.sidebar-ultra');
+      const overlay = document.querySelector('.sidebar-overlay');
+      if (sidebar) sidebar.classList.remove('open');
+      if (overlay) overlay.classList.add('hidden');
+    }
+  });
+
+  // Close sidebar on escape key
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      const sidebar = document.querySelector('.sidebar-ultra');
+      const overlay = document.querySelector('.sidebar-overlay');
+      if (sidebar) sidebar.classList.remove('open');
+      if (overlay) overlay.classList.add('hidden');
+    }
+  });
+
   // Chat menu toggle
   if (chatMenuBtn && chatMenu) {
     chatMenuBtn.addEventListener('click', () => {

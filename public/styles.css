@@ -753,8 +753,144 @@ textarea {
 }
 
 /* ============================================
+   HAMBURGER MENU - MOBILE ONLY
+   ============================================ */
+
+.mobile-toggle-ultra {
+  display: none;
+  position: absolute;
+  top: var(--space-4);
+  left: var(--space-4);
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  color: var(--text-primary);
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 999;
+  transition: all var(--transition);
+}
+
+.mobile-toggle-ultra:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--border-medium);
+}
+
+.mobile-toggle-ultra svg {
+  width: 24px;
+  height: 24px;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Sidebar overlay for mobile */
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 998;
+  animation: fadeIn 0.2s var(--transition);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ============================================
    MOBILE OPTIMIZATIONS
    ============================================ */
+
+@media (max-width: 1023px) {
+  /* Show hamburger on mobile */
+  .mobile-toggle-ultra {
+    display: flex;
+  }
+
+  /* Sidebar slides in from left on mobile */
+  .sidebar-ultra {
+    display: flex !important;
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 280px;
+    height: 100vh;
+    flex-direction: column;
+    background: var(--bg-primary);
+    border-right: 1px solid var(--border-light);
+    z-index: 999;
+    transform: translateX(-100%);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow-y: auto;
+  }
+
+  /* When sidebar is open */
+  .sidebar-ultra.open {
+    transform: translateX(0);
+    box-shadow: 4px 0 16px rgba(0, 0, 0, 0.15);
+  }
+
+  /* Show overlay when sidebar is open */
+  .sidebar-overlay {
+    display: block;
+  }
+
+  .sidebar-overlay.hidden {
+    display: none;
+  }
+
+  /* Add close button style in sidebar */
+  .sidebar-header-ultra {
+    position: relative;
+  }
+
+  .sidebar-close-btn {
+    display: flex;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all var(--transition);
+  }
+
+  .sidebar-close-btn:hover {
+    background: var(--bg-tertiary);
+  }
+
+  .sidebar-close-btn svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  /* Adjust chat area on mobile */
+  .chat-area-ultra {
+    position: relative;
+  }
+
+  .mobile-toggle-ultra {
+    z-index: 1000;
+  }
+}
 
 @media (max-width: 640px) {
   .chat-history-ultra {
