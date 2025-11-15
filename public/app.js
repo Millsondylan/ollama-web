@@ -765,60 +765,57 @@ function attachChatHandlers() {
     });
   }
 
-  // Mobile hamburger menu handler (new design)
-  const mobileToggle = document.getElementById('sidebar-toggle-mobile') || document.querySelector('.mobile-toggle-ultra');
-  const sidebar = document.getElementById('chat-sidebar') || document.querySelector('.sidebar-ultra');
+  // Mobile hamburger menu handler - SIMPLE AND RELIABLE
+  const mobileToggle = document.getElementById('sidebar-toggle-mobile');
+  const sidebar = document.getElementById('chat-sidebar');
+
+  // Create overlay if it doesn't exist
+  if (!document.querySelector('.sidebar-overlay')) {
+    const overlay = document.createElement('div');
+    overlay.className = 'sidebar-overlay';
+    document.body.appendChild(overlay);
+  }
 
   if (mobileToggle && sidebar) {
-    mobileToggle.addEventListener('click', () => {
+    // Toggle sidebar open/closed on hamburger click
+    mobileToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
       sidebar.classList.toggle('open');
-      // Create overlay if it doesn't exist
-      let overlay = document.querySelector('.sidebar-overlay');
-      if (!overlay) {
-        overlay = document.createElement('div');
-        overlay.className = 'sidebar-overlay';
-        document.body.appendChild(overlay);
+      const overlay = document.querySelector('.sidebar-overlay');
+      if (overlay) {
+        overlay.classList.toggle('visible');
       }
+    });
 
-      if (sidebar.classList.contains('open')) {
-        overlay.classList.remove('hidden');
-      } else {
-        overlay.classList.add('hidden');
+    // Close sidebar when clicking overlay
+    document.addEventListener('click', (e) => {
+      const overlay = document.querySelector('.sidebar-overlay');
+      if (overlay && overlay.classList.contains('visible') &&
+          !sidebar.contains(e.target) && !mobileToggle.contains(e.target)) {
+        sidebar.classList.remove('open');
+        overlay.classList.remove('visible');
+      }
+    });
+
+    // Close sidebar when clicking a session item
+    const sessionItems = document.querySelectorAll('.session-item-ultra');
+    sessionItems.forEach((item) => {
+      item.addEventListener('click', () => {
+        sidebar.classList.remove('open');
+        const overlay = document.querySelector('.sidebar-overlay');
+        if (overlay) overlay.classList.remove('visible');
+      });
+    });
+
+    // Close sidebar on Escape key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        sidebar.classList.remove('open');
+        const overlay = document.querySelector('.sidebar-overlay');
+        if (overlay) overlay.classList.remove('visible');
       }
     });
   }
-
-  // Close sidebar when clicking overlay
-  document.addEventListener('click', (e) => {
-    const sidebar = document.querySelector('.sidebar-ultra');
-    const mobileToggle = document.querySelector('.mobile-toggle-ultra');
-    const overlay = document.querySelector('.sidebar-overlay');
-
-    if (overlay && !overlay.classList.contains('hidden') && !sidebar.contains(e.target) && !mobileToggle.contains(e.target)) {
-      sidebar.classList.remove('open');
-      overlay.classList.add('hidden');
-    }
-  });
-
-  // Close sidebar when clicking a session item
-  document.addEventListener('click', (e) => {
-    if (e.target.classList.contains('session-item-ultra')) {
-      const sidebar = document.querySelector('.sidebar-ultra');
-      const overlay = document.querySelector('.sidebar-overlay');
-      if (sidebar) sidebar.classList.remove('open');
-      if (overlay) overlay.classList.add('hidden');
-    }
-  });
-
-  // Close sidebar on escape key
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      const sidebar = document.querySelector('.sidebar-ultra');
-      const overlay = document.querySelector('.sidebar-overlay');
-      if (sidebar) sidebar.classList.remove('open');
-      if (overlay) overlay.classList.add('hidden');
-    }
-  });
 
   // Chat menu toggle
   if (chatMenuBtn && chatMenu) {
