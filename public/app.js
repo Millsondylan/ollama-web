@@ -2981,11 +2981,15 @@ function spellCheckMessage(message) {
 function enhanceAICoderPrompt(userMessage) {
   // Check if AI Coder enhancement is enabled
   if (!state.settings?.aiCoderEnabled) {
+    console.log('[AI CODER] DISABLED - returning original message');
     return userMessage;
   }
 
+  console.log('[AI CODER] ENABLED - enhancing message');
+
   // Step 1: Fix spelling mistakes
   const spellChecked = spellCheckMessage(userMessage);
+  console.log('[AI CODER] Spell-checked:', spellChecked);
 
   // Step 2: Don't enhance if already detailed or structured
   const isDetailed = spellChecked.length > 200;
@@ -3001,7 +3005,7 @@ function enhanceAICoderPrompt(userMessage) {
 
   // Step 4: Autonomous enhancement for coding tasks
   if (isCodingTask) {
-    return `${spellChecked}
+    const enhanced = `${spellChecked}
 
 EXECUTE AUTONOMOUSLY:
 1. Search the codebase to find all relevant files - don't ask, just do it
@@ -3011,9 +3015,12 @@ EXECUTE AUTONOMOUSLY:
 5. Report what you did when finished - don't ask what to do next
 
 NEVER ask "would you like me to..." or "should I..." - just complete the full task.`;
+    console.log('[AI CODER] Enhanced coding task:', enhanced);
+    return enhanced;
   }
 
   // For non-coding queries, just return spell-checked version
+  console.log('[AI CODER] Non-coding query, returning spell-checked only');
   return spellChecked;
 }
 
