@@ -34,13 +34,13 @@ const RAW_BASE_URL =
   process.env.PUBLIC_URL ||
   `http://localhost:${PORT}`;
 const DEFAULT_BASE_URL = withTrailingSlash(RAW_BASE_URL);
-const DEFAULT_FETCH_TIMEOUT_MS = Number(process.env.HTTP_FETCH_TIMEOUT_MS || 60000);
+const DEFAULT_FETCH_TIMEOUT_MS = Number(process.env.HTTP_FETCH_TIMEOUT_MS || 15000);
 const OLLAMA_CONNECTIVITY_TIMEOUT_MS = Number(process.env.OLLAMA_CONNECTIVITY_TIMEOUT_MS || 10000);
 const OLLAMA_GENERATION_TIMEOUT_MS = Number(process.env.OLLAMA_GENERATION_TIMEOUT_MS || 600000);
 const OLLAMA_STREAM_TIMEOUT_MS =
   process.env.OLLAMA_STREAM_TIMEOUT_MS !== undefined
     ? Math.max(Number(process.env.OLLAMA_STREAM_TIMEOUT_MS) || 0, 0)
-    : 0;
+    : 30000;
 const OLLAMA_UNAVAILABLE_MESSAGE = 'Cannot connect to Ollama service. Is the Ollama service running?';
 const MAX_GENERATE_IMAGES = Number(process.env.MAX_GENERATE_IMAGES || 4);
 const STREAM_HEARTBEAT_INTERVAL_MS = Number(process.env.STREAM_HEARTBEAT_INTERVAL_MS || 15000);
