@@ -697,8 +697,8 @@ function attachChatHandlers() {
   // AI Coder enhancement toggle
   const aiCoderToggle = document.getElementById('ai-coder-toggle');
   if (aiCoderToggle) {
-    // Load saved preference (default to FALSE - disabled by default)
-    const aiCoderDefault = state.settings?.aiCoderEnabled === true; // Default disabled
+    // Load saved preference (default to TRUE - enabled by default with new improved version)
+    const aiCoderDefault = state.settings?.aiCoderEnabled !== false; // Default enabled
     aiCoderToggle.checked = aiCoderDefault;
     state.settings.aiCoderEnabled = aiCoderDefault;
 
@@ -706,7 +706,8 @@ function attachChatHandlers() {
       state.settings.aiCoderEnabled = event.target.checked;
       persistClientSettings();
       const status = event.target.checked ? 'enabled' : 'disabled';
-      showNotification(`✨ AI Coder mode ${status}`, 'info', 2000);
+      const features = event.target.checked ? '(spell-check + smart prompts)' : '';
+      showNotification(`✨ AI Coder ${status} ${features}`, 'info', 2000);
       console.log('[DEBUG] AI Coder enhancement:', status);
     });
   }
@@ -2869,97 +2870,144 @@ function toggleStructuredPrompts() {
   showStructuredPromptNotification(status);
 }
 
-// AI Coder Enhancement - Intelligent context-aware prompt enhancement
+// Spell-check and auto-correct common mistakes
+function spellCheckMessage(message) {
+  // Common typos and corrections (case-insensitive)
+  const corrections = {
+    // Common misspellings
+    'teh': 'the',
+    'tehm': 'them',
+    'taht': 'that',
+    'thsi': 'this',
+    'waht': 'what',
+    'hwo': 'how',
+    'adn': 'and',
+    'nad': 'and',
+    'recieve': 'receive',
+    'recieved': 'received',
+    'acheive': 'achieve',
+    'beleive': 'believe',
+    'occured': 'occurred',
+    'seperete': 'separate',
+    'definately': 'definitely',
+    'wierd': 'weird',
+    'untill': 'until',
+    'thier': 'their',
+    'freind': 'friend',
+
+    // Programming-specific
+    'funciton': 'function',
+    'fucntion': 'function',
+    'funtion': 'function',
+    'functino': 'function',
+    'retrun': 'return',
+    'reutrn': 'return',
+    'calss': 'class',
+    'clas': 'class',
+    'improt': 'import',
+    'imoprt': 'import',
+    'consoel': 'console',
+    'cosole': 'console',
+    'docuemnt': 'document',
+    'documetn': 'document',
+    'lenght': 'length',
+    'heigth': 'height',
+    'widht': 'width',
+    'tihs': 'this',
+    'asynch': 'async',
+    'awiat': 'await',
+    'varaible': 'variable',
+    'varialbe': 'variable',
+    'promsie': 'promise',
+    'promies': 'promise',
+    'respone': 'response',
+    'resposne': 'response',
+    'respnse': 'response',
+    'reqeust': 'request',
+    'requset': 'request',
+    'rquest': 'request',
+    'arry': 'array',
+    'arary': 'array',
+    'obejct': 'object',
+    'ojbect': 'object',
+    'strign': 'string',
+    'stirng': 'string',
+    'sring': 'string',
+    'elemnent': 'element',
+    'elemnet': 'element',
+    'componet': 'component',
+    'compnent': 'component',
+    'contructor': 'constructor',
+    'costructor': 'constructor',
+    'excecute': 'execute',
+    'exeucte': 'execute',
+    'implmement': 'implement',
+    'implmeent': 'implement',
+    'enviroment': 'environment',
+    'enviornment': 'environment',
+    'paramter': 'parameter',
+    'paramater': 'parameter',
+    'arguemnt': 'argument',
+    'argumetn': 'argument',
+    'interaface': 'interface',
+    'interfce': 'interface',
+    'databse': 'database',
+    'databae': 'database',
+    'atribute': 'attribute',
+    'attribtue': 'attribute',
+    'validtion': 'validation',
+    'valiation': 'validation'
+  };
+
+  let correctedMessage = message;
+
+  // Replace each misspelling while preserving word boundaries
+  for (const [wrong, right] of Object.entries(corrections)) {
+    // Case-insensitive replacement with word boundaries
+    const regex = new RegExp(`\\b${wrong}\\b`, 'gi');
+    correctedMessage = correctedMessage.replace(regex, (match) => {
+      // Preserve original capitalization pattern
+      if (match[0] === match[0].toUpperCase()) {
+        return right.charAt(0).toUpperCase() + right.slice(1);
+      }
+      return right;
+    });
+  }
+
+  return correctedMessage;
+}
+
+// AI Coder Enhancement - Smart, concise prompt improvement
 function enhanceAICoderPrompt(userMessage) {
   // Check if AI Coder enhancement is enabled
   if (!state.settings?.aiCoderEnabled) {
     return userMessage;
   }
 
-  // Don't enhance if already detailed or already structured
-  const isDetailed = userMessage.length > 250;
-  const isStructured = userMessage.includes('<') || userMessage.includes('```') || userMessage.includes('```');
-  const isQuestion = userMessage.trim().endsWith('?');
+  // Step 1: Fix spelling mistakes
+  const spellChecked = spellCheckMessage(userMessage);
+
+  // Step 2: Don't enhance if already detailed or structured
+  const isDetailed = spellChecked.length > 200;
+  const isStructured = spellChecked.includes('<') || spellChecked.includes('```');
 
   if (isDetailed || isStructured) {
-    return userMessage;
+    return spellChecked;
   }
 
-  // Detect intent from keywords
-  const codingKeywords = /^(fix|add|create|implement|build|develop|make|update|modify|change|refactor|optimize|improve|debug|test|write|code|script|function|feature|bug|issue|error)/i;
-  const isCodingTask = codingKeywords.test(userMessage.trim());
+  // Step 3: Detect intent
+  const codingKeywords = /\b(fix|add|create|implement|build|develop|make|update|modify|change|refactor|optimize|improve|debug|test|write|code|script|function|feature|bug|issue|error|component|api|endpoint|database|query|style|css|html|javascript|react|vue|python|node|express)\b/i;
+  const isCodingTask = codingKeywords.test(spellChecked);
 
-  // Don't enhance non-coding queries
-  if (!isCodingTask && !isQuestion) {
-    return userMessage;
+  // Step 4: Simple, effective enhancement for coding tasks
+  if (isCodingTask) {
+    return `${spellChecked}
+
+Important: Search the codebase first to understand existing patterns, then implement the complete solution following the project's conventions. Include proper error handling and test your changes.`;
   }
 
-  // Build context-aware enhanced prompt with comprehensive instructions
-  const enhancedPrompt = `${userMessage}
-
-<execution_instructions>
-WORKFLOW ORDER (CRITICAL - Follow this exact sequence):
-
-PHASE 1: DISCOVERY (Do this FIRST)
-- Search existing codebase for related files and patterns
-- Use grep/find tools to locate relevant code
-- Read key files to understand current implementation
-- Map project structure and dependencies
-- Identify framework, language, and conventions
-- Review package.json/requirements.txt/build files
-
-PHASE 2: RESEARCH (Do this SECOND)
-- Search online for best practices and security patterns
-- Find examples of similar implementations
-- Research relevant libraries and APIs
-- Review documentation for frameworks being used
-- Check for security vulnerabilities and anti-patterns
-
-PHASE 3: PLANNING (Do this THIRD)
-- Design approach based on discoveries and research
-- Outline implementation steps with specific files
-- Identify edge cases and error handling
-- Plan testing strategy
-- No placeholders or TODOs in the plan
-
-PHASE 4: IMPLEMENTATION (Do this FOURTH)
-- Write complete, production-ready code
-- Implement ALL functionality, never partial code
-- Follow project conventions discovered in Phase 1
-- Apply best practices from Phase 2
-- Include proper error handling and validation
-- Add appropriate comments for complex logic
-- NO PLACEHOLDERS - write full implementations only
-
-PHASE 5: VERIFICATION (Do this LAST)
-- Run tests and verify functionality
-- Check for errors and fix them
-- Validate edge cases
-- Ensure code follows security best practices
-- Document changes made
-
-CRITICAL RULES:
-✓ MUST complete all 5 phases - never stop after discovery
-✓ MUST write complete code - no TODOs, no placeholders, no "implement this later"
-✓ MUST discover files before writing code
-✓ MUST research before implementing
-✓ MUST test and verify everything works
-✗ NEVER ask user for next steps - complete the full task
-✗ NEVER write partial implementations
-✗ NEVER skip phases
-</execution_instructions>
-
-<code_discovery_instructions>
-To view code, use tools available:
-- Search codebase: grep, ripgrep, or search commands
-- Read files: cat, read file tools
-- List files: ls, find, glob patterns
-- Navigate structure: tree, directory listings
-
-IMPORTANT: Actually USE these tools before coding. Tell the AI to discover, not just plan to discover.
-</code_discovery_instructions>`;
-
-  return enhancedPrompt;
+  // For non-coding queries, just return spell-checked version
+  return spellChecked;
 }
 
 function showStructuredPromptNotification(status) {
