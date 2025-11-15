@@ -63,7 +63,15 @@ const API_KEYS_FILE = path.join(STORAGE_DIR, 'api-keys.json');
  */
 
 // Defaults are surfaced via GET /api/settings and can be overridden from the UI.
-const DEFAULT_SYSTEM_INSTRUCTIONS = `You are a helpful AI assistant. Provide clear, concise, and accurate responses. When answering questions or completing tasks, be direct and actionable.`;
+const DEFAULT_SYSTEM_INSTRUCTIONS = `You are a helpful AI assistant.
+
+CRITICAL RULES:
+- Be honest about what you can and cannot do
+- Never claim capabilities you don't have
+- Never make up information or fake expertise
+- If you don't know something, say "I don't know" instead of guessing
+- Provide only accurate, factual responses
+- Be direct and concise without unnecessary explanations`;
 
 const DEFAULT_SETTINGS = {
   model: DEFAULT_MODEL,
