@@ -758,9 +758,44 @@ function attachChatHandlers() {
   }
 
   if (sidebarToggleMobile) {
-    sidebarToggleMobile.addEventListener('click', () => {
+    sidebarToggleMobile.addEventListener('click', (e) => {
+      e.stopPropagation();
       if (chatSidebar) {
         chatSidebar.classList.toggle('open');
+
+        // Show/hide overlay
+        let overlay = document.querySelector('.sidebar-overlay');
+        if (!overlay) {
+          overlay = document.createElement('div');
+          overlay.className = 'sidebar-overlay';
+          document.body.appendChild(overlay);
+        }
+
+        if (chatSidebar.classList.contains('open')) {
+          overlay.classList.add('visible');
+        } else {
+          overlay.classList.remove('visible');
+        }
+      }
+    });
+
+    // Close sidebar when clicking overlay
+    document.addEventListener('click', (e) => {
+      const overlay = document.querySelector('.sidebar-overlay');
+      if (chatSidebar && overlay && overlay.classList.contains('visible')) {
+        if (!chatSidebar.contains(e.target) && !sidebarToggleMobile.contains(e.target)) {
+          chatSidebar.classList.remove('open');
+          overlay.classList.remove('visible');
+        }
+      }
+    });
+
+    // Close sidebar on Escape
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && chatSidebar) {
+        chatSidebar.classList.remove('open');
+        const overlay = document.querySelector('.sidebar-overlay');
+        if (overlay) overlay.classList.remove('visible');
       }
     });
   }

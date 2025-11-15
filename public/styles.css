@@ -613,6 +613,78 @@ textarea {
 }
 
 /* ============================================
+   MOBILE LAYOUT (HAMBURGER MENU)
+   ============================================ */
+
+@media (max-width: 1023px) {
+  /* Show hamburger button on mobile */
+  .mobile-toggle-ultra {
+    display: flex !important;
+    position: absolute;
+    top: var(--space-4);
+    left: var(--space-4);
+    z-index: 100;
+    width: 44px;
+    height: 44px;
+    background: var(--accent-primary);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+
+  .mobile-toggle-ultra:hover {
+    opacity: 0.9;
+  }
+
+  /* Sidebar hidden by default on mobile */
+  .sidebar-ultra {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    width: 280px;
+    height: 100vh;
+    z-index: 99;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease-out;
+    display: flex !important;
+    flex-direction: column;
+    background: var(--bg-primary);
+    border-right: 1px solid var(--border-light);
+    overflow-y: auto;
+    box-shadow: 4px 0 12px rgba(0, 0, 0, 0.15);
+  }
+
+  /* Show sidebar when open class is added */
+  .sidebar-ultra.open {
+    transform: translateX(0);
+  }
+
+  /* Overlay behind sidebar */
+  .sidebar-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 98;
+    display: none;
+  }
+
+  .sidebar-overlay.visible {
+    display: block;
+  }
+
+  /* Chat area full width on mobile */
+  .chat-area-ultra {
+    width: 100%;
+  }
+}
+
+/* ============================================
    DESKTOP LAYOUT (SIDEBAR)
    ============================================ */
 
