@@ -2999,11 +2999,18 @@ function enhanceAICoderPrompt(userMessage) {
   const codingKeywords = /\b(fix|add|create|implement|build|develop|make|update|modify|change|refactor|optimize|improve|debug|test|write|code|script|function|feature|bug|issue|error|component|api|endpoint|database|query|style|css|html|javascript|react|vue|python|node|express)\b/i;
   const isCodingTask = codingKeywords.test(spellChecked);
 
-  // Step 4: Simple, effective enhancement for coding tasks
+  // Step 4: Autonomous enhancement for coding tasks
   if (isCodingTask) {
     return `${spellChecked}
 
-Important: Search the codebase first to understand existing patterns, then implement the complete solution following the project's conventions. Include proper error handling and test your changes.`;
+EXECUTE AUTONOMOUSLY:
+1. Search the codebase to find all relevant files - don't ask, just do it
+2. Read the files to understand how things work - don't ask, just do it
+3. Implement the complete solution following existing patterns - don't ask, just do it
+4. Test your changes and fix any errors - don't ask, just do it
+5. Report what you did when finished - don't ask what to do next
+
+NEVER ask "would you like me to..." or "should I..." - just complete the full task.`;
   }
 
   // For non-coding queries, just return spell-checked version
