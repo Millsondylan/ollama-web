@@ -1592,13 +1592,27 @@ button:focus-visible {
 
 .thinking-content {
   max-height: 400px;
-  overflow: hidden;
+  overflow-y: auto;
   transition: max-height var(--transition-slow), opacity var(--transition-slow);
 }
 
 .thinking-section.collapsed .thinking-content {
   max-height: 0;
   opacity: 0;
+  overflow: hidden;
+}
+
+.thinking-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.thinking-content::-webkit-scrollbar-thumb {
+  background: var(--border-medium);
+  border-radius: var(--radius-sm);
+}
+
+.thinking-content::-webkit-scrollbar-thumb:hover {
+  background: var(--border-heavy);
 }
 
 .thinking-text {
