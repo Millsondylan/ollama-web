@@ -7,9 +7,12 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="theme-color" content="#3b82f6" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <link rel="manifest" href="/manifest.json" />
     <title>Ollama Web Console</title>
-    <link rel="stylesheet" href="/styles.css?v=20250115-hamburger-menu" />
+    <link rel="stylesheet" href="/styles.css?v=20250115-REDESIGN-v1" />
   </head>
   <body>
     <!-- Minimal App Structure - Claude.ai/ChatGPT Style -->
@@ -542,11 +545,30 @@
       </section>
     </template>
 
-    <script src="/app.js?v=20250115-hamburger-menu" type="module"></script>
+    <script src="/app.js?v=20250115-REDESIGN-v1" type="module"></script>
     <script>
-      // Service Worker Registration
+      // Clear old service worker cache and register new one
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
+          // Unregister all old service workers
+          navigator.serviceWorker.getRegistrations().then((registrations) => {
+            registrations.forEach((registration) => {
+              registration.unregister();
+              console.log('[SW] Unregistered old service worker');
+            });
+          });
+
+          // Clear all caches
+          if ('caches' in window) {
+            caches.keys().then((cacheNames) => {
+              cacheNames.forEach((cacheName) => {
+                caches.delete(cacheName);
+                console.log('[SW] Cleared cache:', cacheName);
+              });
+            });
+          }
+
+          // Register new service worker
           navigator.serviceWorker.register('/sw.js')
             .then((registration) => {
               console.log('[SW] Service worker registered:', registration.scope);
