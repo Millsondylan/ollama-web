@@ -682,19 +682,16 @@ function attachChatHandlers() {
     });
   }
 
+  // Thinking is now always enabled - no toggle needed
+  state.thinkingEnabled = true;
   if (thinkingToggle) {
-    thinkingToggle.checked = state.thinkingEnabled;
-    thinkingToggle.addEventListener('change', (event) => {
-      state.thinkingEnabled = event.target.checked;
-      console.log('[DEBUG] Thinking toggled:', state.thinkingEnabled);
-      persistThinkingPreference(state.thinkingEnabled);
-      updateThinkingStatus();
-      renderAiDisclosure();
-      if (state.thinkingEnabled) {
-        clearThinkingStatusError();
-        ensureThinkingPrerequisites();
-      }
-    });
+    // Hide the toggle since thinking is always on
+    thinkingToggle.checked = true;
+    thinkingToggle.disabled = true;
+    const toggleParent = thinkingToggle.closest('.setting-group-ultra');
+    if (toggleParent) {
+      toggleParent.style.display = 'none';
+    }
   }
 
   // AI Coder enhancement toggle
@@ -818,20 +815,67 @@ function attachChatHandlers() {
     const connectBtn = document.getElementById('github-connect-btn');
     const statusDiv = document.getElementById('github-status');
     const statusText = document.getElementById('github-status-text');
-    const filesPreview = document.getElementById('github-files-preview');
-    const filesList = document.getElementById('github-files-list');
+    const reposList = document.getElementById('github-repos-list');
+    const reposEmpty = document.getElementById('github-repos-empty');
 
-    // Load saved values from localStorage
+    // Load saved token from localStorage
     try {
-      const saved = JSON.parse(localStorage.getItem('github-config') || '{}');
-      if (tokenInput && saved.token) tokenInput.value = saved.token;
-      if (repoInput && saved.repo) repoInput.value = saved.repo;
-      if (saved.connected && saved.files) {
-        filesPreview.style.display = 'block';
-        filesList.textContent = `${saved.files.length} files loaded`;
-      }
+      const saved = JSON.parse(localStorage.getItem('github-token') || '""');
+      if (tokenInput && saved) tokenInput.value = saved;
     } catch (e) {
-      console.error('Failed to load GitHub config:', e);
+      console.error('Failed to load GitHub token:', e);
+    }
+
+    // Load and display connected repositories
+    async function loadRepositories() {
+      try {
+        const response = await fetchJson('/api/github/repos');
+        const repos = response.repos || [];
+
+        if (repos.length === 0) {
+          reposList.style.display = 'none';
+          reposEmpty.style.display = 'block';
+        } else {
+          reposList.style.display = 'block';
+          reposEmpty.style.display = 'none';
+          renderRepositories(repos);
+        }
+      } catch (error) {
+        console.error('Failed to load repositories:', error);
+      }
+    }
+
+    function renderRepositories(repos) {
+      reposList.innerHTML = repos.map(repo => `
+        <div class="github-repo-item" data-repo-id="${repo.id}">
+          <div class="github-repo-info">
+            <div class="github-repo-name">${repo.name}</div>
+            <div class="github-repo-meta">${repo.fileCount} files · Connected ${new Date(repo.connectedAt).toLocaleDateString()}</div>
+          </div>
+          <div class="github-repo-actions">
+            <button class="github-repo-remove" data-repo-id="${repo.id}" title="Remove repository">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      `).join('');
+
+      // Attach remove handlers
+      reposList.querySelectorAll('.github-repo-remove').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          const repoId = e.currentTarget.dataset.repoId;
+          if (confirm('Remove this repository?')) {
+            try {
+              await fetchJson(`/api/github/repos/${repoId}`, { method: 'DELETE' });
+              await loadRepositories();
+            } catch (error) {
+              alert('Failed to remove repository: ' + error.message);
+            }
+          }
+        });
+      });
     }
 
     if (connectBtn) {
@@ -845,7 +889,7 @@ function attachChatHandlers() {
         }
 
         connectBtn.disabled = true;
-        connectBtn.textContent = 'Connecting...';
+        connectBtn.textContent = 'Adding...';
         statusDiv.style.display = 'block';
         statusText.textContent = 'Fetching repository files...';
 
@@ -855,18 +899,22 @@ function attachChatHandlers() {
             body: JSON.stringify({ token, repo })
           });
 
-          // Save to localStorage (token will be stored on backend only)
-          localStorage.setItem('github-config', JSON.stringify({
-            repo,
-            token,
-            connected: true,
-            files: response.files
-          }));
+          // Save token to localStorage for future use
+          localStorage.setItem('github-token', JSON.stringify(token));
 
-          filesPreview.style.display = 'block';
-          filesList.innerHTML = `<strong>${response.files.length} files</strong> from ${repo}`;
-          statusText.textContent = '✓ Connected successfully!';
+          statusText.textContent = `✓ Added ${response.repo} with ${response.count} files!`;
           statusText.style.color = 'var(--success)';
+
+          // Clear repo input
+          if (repoInput) repoInput.value = '';
+
+          // Reload repositories list
+          await loadRepositories();
+
+          // Hide status after 3 seconds
+          setTimeout(() => {
+            statusDiv.style.display = 'none';
+          }, 3000);
 
         } catch (error) {
           console.error('GitHub connection failed:', error);
@@ -874,10 +922,13 @@ function attachChatHandlers() {
           statusText.style.color = 'var(--error)';
         } finally {
           connectBtn.disabled = false;
-          connectBtn.textContent = 'Connect Repository';
+          connectBtn.textContent = 'Add Repository';
         }
       });
     }
+
+    // Load repositories on init
+    loadRepositories();
   }
 
   if (settingsBtn && settingsModal) {
@@ -2843,23 +2894,70 @@ function enhanceAICoderPrompt(userMessage) {
     return userMessage;
   }
 
-  // Build context-aware enhanced prompt
+  // Build context-aware enhanced prompt with comprehensive instructions
   const enhancedPrompt = `${userMessage}
 
-EXECUTION INSTRUCTIONS:
-1. DISCOVER FILES FIRST - Always search/read relevant files before coding
-2. USE CONTEXT - Apply all knowledge and context the user has provided
-3. IMPLEMENT FULLY - Complete the entire task, never stop at just discovery
-4. RESEARCH - Search codebase for patterns, existing implementations
-5. NO PLACEHOLDERS - Write complete, production-ready code only
+<execution_instructions>
+WORKFLOW ORDER (CRITICAL - Follow this exact sequence):
 
-Workflow:
-→ Discovery (find files, understand codebase)
-→ Plan (design approach)
-→ Implement (write ALL code)
-→ Verify (test logic)
+PHASE 1: DISCOVERY (Do this FIRST)
+- Search existing codebase for related files and patterns
+- Use grep/find tools to locate relevant code
+- Read key files to understand current implementation
+- Map project structure and dependencies
+- Identify framework, language, and conventions
+- Review package.json/requirements.txt/build files
 
-CRITICAL: Do not stop after discovery. Complete the implementation.`;
+PHASE 2: RESEARCH (Do this SECOND)
+- Search online for best practices and security patterns
+- Find examples of similar implementations
+- Research relevant libraries and APIs
+- Review documentation for frameworks being used
+- Check for security vulnerabilities and anti-patterns
+
+PHASE 3: PLANNING (Do this THIRD)
+- Design approach based on discoveries and research
+- Outline implementation steps with specific files
+- Identify edge cases and error handling
+- Plan testing strategy
+- No placeholders or TODOs in the plan
+
+PHASE 4: IMPLEMENTATION (Do this FOURTH)
+- Write complete, production-ready code
+- Implement ALL functionality, never partial code
+- Follow project conventions discovered in Phase 1
+- Apply best practices from Phase 2
+- Include proper error handling and validation
+- Add appropriate comments for complex logic
+- NO PLACEHOLDERS - write full implementations only
+
+PHASE 5: VERIFICATION (Do this LAST)
+- Run tests and verify functionality
+- Check for errors and fix them
+- Validate edge cases
+- Ensure code follows security best practices
+- Document changes made
+
+CRITICAL RULES:
+✓ MUST complete all 5 phases - never stop after discovery
+✓ MUST write complete code - no TODOs, no placeholders, no "implement this later"
+✓ MUST discover files before writing code
+✓ MUST research before implementing
+✓ MUST test and verify everything works
+✗ NEVER ask user for next steps - complete the full task
+✗ NEVER write partial implementations
+✗ NEVER skip phases
+</execution_instructions>
+
+<code_discovery_instructions>
+To view code, use tools available:
+- Search codebase: grep, ripgrep, or search commands
+- Read files: cat, read file tools
+- List files: ls, find, glob patterns
+- Navigate structure: tree, directory listings
+
+IMPORTANT: Actually USE these tools before coding. Tell the AI to discover, not just plan to discover.
+</code_discovery_instructions>`;
 
   return enhancedPrompt;
 }
@@ -3217,12 +3315,8 @@ function persistThinkingPreference(value) {
 }
 
 function loadThinkingPreference() {
-  try {
-    const raw = localStorage.getItem(THINKING_PREF_KEY);
-    return raw ? JSON.parse(raw) === true : false;
-  } catch (_) {
-    return false;
-  }
+  // Thinking is now always enabled for better AI responses
+  return true;
 }
 
 // Cloud synchronization functions

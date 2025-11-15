@@ -1669,7 +1669,43 @@ app.post('/api/sync/data', async (req, res) => {
   }
 });
 
-// GitHub Integration API
+// GitHub Integration API - Support Multiple Repositories
+const GITHUB_REPOS_FILE = path.join(STORAGE_DIR, 'github-repos.json');
+
+function loadGitHubRepos() {
+  ensureStorageDir();
+  if (!fs.existsSync(GITHUB_REPOS_FILE)) {
+    return { repos: [] };
+  }
+  try {
+    return JSON.parse(fs.readFileSync(GITHUB_REPOS_FILE, 'utf8'));
+  } catch (error) {
+    console.error('Failed to load GitHub repos:', error);
+    return { repos: [] };
+  }
+}
+
+async function saveGitHubRepos(reposData) {
+  ensureStorageDir();
+  await fsp.writeFile(GITHUB_REPOS_FILE, JSON.stringify(reposData, null, 2), 'utf8');
+}
+
+app.get('/api/github/repos', (req, res) => {
+  try {
+    const reposData = loadGitHubRepos();
+    // Don't expose tokens in the response
+    const safeRepos = reposData.repos.map(r => ({
+      id: r.id,
+      name: r.name,
+      fileCount: r.files?.length || 0,
+      connectedAt: r.connectedAt
+    }));
+    res.json({ repos: safeRepos });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/github/connect', async (req, res) => {
   try {
     const { token, repo } = req.body || {};
@@ -1679,21 +1715,79 @@ app.post('/api/github/connect', async (req, res) => {
     if (!/^[\w-]+\/[\w.-]+$/.test(repo)) {
       return res.status(400).json({ error: 'Invalid repo format' });
     }
-    const response = await httpFetch(`https://api.github.com/repos/${repo}/git/trees/main?recursive=1`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Accept': 'application/vnd.github.v3+json',
-        'User-Agent': 'Ollama-Web'
-      },
-      timeout: 30000
-    });
-    if (!response.ok) {
-      return res.status(response.status).json({ error: `GitHub error: ${response.status}` });
+
+    // Try both main and master branches
+    let response, data, files;
+    try {
+      response = await httpFetch(`https://api.github.com/repos/${repo}/git/trees/main?recursive=1`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.github.v3+json',
+          'User-Agent': 'Ollama-Web'
+        },
+        timeout: 30000
+      });
+      if (!response.ok) throw new Error('Main branch not found');
+      data = await response.json();
+    } catch (mainError) {
+      // Try master branch
+      response = await httpFetch(`https://api.github.com/repos/${repo}/git/trees/master?recursive=1`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.github.v3+json',
+          'User-Agent': 'Ollama-Web'
+        },
+        timeout: 30000
+      });
+      if (!response.ok) {
+        return res.status(response.status).json({ error: `GitHub error: ${response.status}` });
+      }
+      data = await response.json();
     }
-    const data = await response.json();
-    const files = (data.tree || []).filter(i => i.type === 'blob').map(i => ({ path: i.path, sha: i.sha, size: i.size }));
-    global.githubConfig = { token, repo, files, connectedAt: new Date().toISOString() };
-    res.json({ success: true, repo, files, count: files.length });
+
+    files = (data.tree || []).filter(i => i.type === 'blob').map(i => ({ path: i.path, sha: i.sha, size: i.size }));
+
+    // Load existing repos
+    const reposData = loadGitHubRepos();
+
+    // Check if repo already exists
+    const existingIndex = reposData.repos.findIndex(r => r.name === repo);
+
+    const repoEntry = {
+      id: existingIndex >= 0 ? reposData.repos[existingIndex].id : crypto.randomUUID(),
+      name: repo,
+      token: token, // Stored securely on server
+      files,
+      connectedAt: new Date().toISOString()
+    };
+
+    if (existingIndex >= 0) {
+      reposData.repos[existingIndex] = repoEntry;
+    } else {
+      reposData.repos.push(repoEntry);
+    }
+
+    await saveGitHubRepos(reposData);
+
+    res.json({
+      success: true,
+      id: repoEntry.id,
+      repo,
+      files: files.slice(0, 50), // Return first 50 files for preview
+      count: files.length
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/github/repos/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const reposData = loadGitHubRepos();
+    reposData.repos = reposData.repos.filter(r => r.id !== id);
+    await saveGitHubRepos(reposData);
+    res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1701,21 +1795,35 @@ app.post('/api/github/connect', async (req, res) => {
 
 app.get('/api/github/file', async (req, res) => {
   try {
-    const { path: filePath } = req.query;
-    if (!global.githubConfig || !global.githubConfig.token) {
-      return res.status(401).json({ error: 'GitHub not connected' });
+    const { path: filePath, repo: repoName } = req.query;
+    if (!repoName || !filePath) {
+      return res.status(400).json({ error: 'Repo and path are required' });
     }
-    const { token, repo } = global.githubConfig;
-    const response = await httpFetch(`https://api.github.com/repos/${repo}/contents/${filePath}`, {
-      headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'Ollama-Web' },
+
+    const reposData = loadGitHubRepos();
+    const repo = reposData.repos.find(r => r.name === repoName);
+
+    if (!repo) {
+      return res.status(404).json({ error: 'Repository not connected' });
+    }
+
+    const { token } = repo;
+    const response = await httpFetch(`https://api.github.com/repos/${repoName}/contents/${filePath}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'Ollama-Web'
+      },
       timeout: 30000
     });
+
     if (!response.ok) {
       return res.status(response.status).json({ error: 'Failed to fetch file' });
     }
+
     const data = await response.json();
     const content = Buffer.from(data.content, 'base64').toString('utf-8');
-    res.json({ path: filePath, content, sha: data.sha });
+    res.json({ path: filePath, content, sha: data.sha, repo: repoName });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
