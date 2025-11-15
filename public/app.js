@@ -3015,25 +3015,7 @@ function enhanceAICoderPrompt(userMessage) {
   if (isCodingTask) {
     const enhanced = `${spellChecked}
 
-⚡ AUTONOMOUS EXECUTION DIRECTIVE:
-You must execute this task COMPLETELY and INDEPENDENTLY. Do NOT provide analysis, requirements, or plans. Do NOT ask for confirmation. Do NOT list "Here's what I'll do" or "Would you like me to...". Simply WORK and REPORT.
-
-REQUIRED WORKFLOW:
-1. SEARCH: Find relevant files (don't ask permission, just search)
-2. READ: Understand patterns (examine existing code structure)
-3. IMPLEMENT: Write the complete solution (don't explain before coding)
-4. TEST: Verify changes work (run tests, check output)
-5. REPORT: Tell what you did (one paragraph, concisely)
-
-FORBIDDEN RESPONSES:
-- Analysis of requirements ❌
-- "Here's what I'll do:" ❌
-- "Would you like me to..." ❌
-- Lists of steps before implementing ❌
-- Multiple options to choose from ❌
-- "Let me know if you want me to continue" ❌
-
-Just implement the feature end-to-end. Test it. Report results.`;
+Code first, explain after. Find files → understand code → implement solution → test → report.`;
     console.log('[AI CODER] Enhanced coding task:', enhanced);
     return enhanced;
   }
