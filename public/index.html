@@ -439,8 +439,29 @@
             <input type="text" name="model" required />
           </label>
           <label>
+            Mode
+            <select name="ollamaMode" id="ollama-mode-select">
+              <option value="local">Local (Offline - No API key)</option>
+              <option value="cloud">Cloud (Datacenter GPUs - Requires API key)</option>
+            </select>
+          </label>
+          <div class="settings-help-text" style="margin: -8px 0 16px 0; padding: 8px 12px; background: var(--bg-secondary, #f5f5f5); border-radius: 4px; font-size: 0.9em;">
+            <div id="mode-help-local" style="display: none;">
+              <strong>Local Mode:</strong> Uses models on your device. Works offline, no API key needed.
+            </div>
+            <div id="mode-help-cloud" style="display: none;">
+              <strong>Cloud Mode:</strong> Access 1 Trillion parameter models on Ollama's datacenter GPUs. Requires API key from <a href="https://ollama.com/settings/keys" target="_blank">ollama.com/settings/keys</a>
+            </div>
+          </div>
+          <label id="cloud-api-key-label" style="display: none;">
+            Ollama API Key (for cloud mode)
+            <input type="password" name="ollamaApiKey" id="ollama-api-key-input" placeholder="Your API key from ollama.com" />
+            <small style="display: block; margin-top: 4px; color: #666;">Get your key at <a href="https://ollama.com/settings/keys" target="_blank">ollama.com/settings/keys</a></small>
+          </label>
+          <label>
             Ollama endpoint (OLLAMA_HOST)
-            <input type="url" name="apiEndpoint" placeholder="http://127.0.0.1:11434" />
+            <input type="url" name="apiEndpoint" id="ollama-endpoint-input" placeholder="http://127.0.0.1:11434" />
+            <small id="endpoint-help" style="display: block; margin-top: 4px; color: #666;"></small>
           </label>
           <label>
             Backend base URL (for this UI)

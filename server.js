@@ -64,9 +64,21 @@ const crypto = require('crypto');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+
+// Cloud/Local mode configuration
+const OLLAMA_MODE = (process.env.OLLAMA_MODE || 'local').toLowerCase();
+const IS_CLOUD_MODE = OLLAMA_MODE === 'cloud';
+const OLLAMA_API_KEY = process.env.OLLAMA_API_KEY || '';
+const OLLAMA_CLOUD_HOST = process.env.OLLAMA_CLOUD_HOST || 'https://ollama.com';
+const OLLAMA_CLOUD_MODEL = process.env.OLLAMA_CLOUD_MODEL || 'kimi-k2:1t-cloud';
+
 const FALLBACK_MODEL = 'qwen3:1.7B';
-const DEFAULT_MODEL = process.env.OLLAMA_MODEL || detectLocalModel() || FALLBACK_MODEL;
-const DEFAULT_ENDPOINT = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
+const DEFAULT_MODEL = IS_CLOUD_MODE
+  ? OLLAMA_CLOUD_MODEL
+  : (process.env.OLLAMA_MODEL || detectLocalModel() || FALLBACK_MODEL);
+const DEFAULT_ENDPOINT = IS_CLOUD_MODE
+  ? OLLAMA_CLOUD_HOST
+  : (process.env.OLLAMA_HOST || 'http://127.0.0.1:11434');
 const ATTACHMENT_CHAR_LIMIT = Number(process.env.ATTACHMENT_CHAR_LIMIT || 200000);
 const MAX_ATTACHMENTS = Number(process.env.MAX_ATTACHMENTS || 10);
 const DEFAULT_SESSION_ID = 'default';
@@ -131,7 +143,9 @@ const DEFAULT_SETTINGS = {
   theme: 'system',
   systemInstructions: DEFAULT_SYSTEM_INSTRUCTIONS,
   maxHistory: DEFAULT_CONTEXT_LIMIT,
-  backendBaseUrl: DEFAULT_BASE_URL
+  backendBaseUrl: DEFAULT_BASE_URL,
+  ollamaMode: OLLAMA_MODE,
+  ollamaApiKey: OLLAMA_API_KEY
 };
 
 const AI_CODER_PROMPT_PRESET = `You are a prompt engineer. Your job is to transform user requests into PERFECT PROMPTS for autonomous AI coders (Claude, ChatGPT, etc).
@@ -268,6 +282,17 @@ function withTrailingSlash(value) {
     return '/';
   }
   return value.endsWith('/') ? value : `${value}/`;
+}
+
+function getOllamaHeaders(contentType = 'application/json') {
+  const headers = {};
+  if (contentType) {
+    headers['Content-Type'] = contentType;
+  }
+  if (IS_CLOUD_MODE && OLLAMA_API_KEY) {
+    headers['Authorization'] = `Bearer ${OLLAMA_API_KEY}`;
+  }
+  return headers;
 }
 
 function detectLocalModel() {
@@ -774,6 +799,7 @@ async function ensureOllamaReachable(endpoint) {
   try {
     const response = await httpFetch(`${endpoint}api/tags`, {
       method: 'GET',
+      headers: getOllamaHeaders(null),
       timeout: OLLAMA_CONNECTIVITY_TIMEOUT_MS
     });
 
@@ -1278,7 +1304,7 @@ app.post('/api/chat', async (req, res) => {
 
     const upstream = await httpFetch(`${endpoint}api/generate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getOllamaHeaders(),
       timeout: OLLAMA_GENERATION_TIMEOUT_MS,
       body: JSON.stringify({
         model: modelToUse,
@@ -1385,7 +1411,7 @@ app.post('/api/generate', async (req, res) => {
   try {
     const upstream = await httpFetch(`${endpoint}api/generate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getOllamaHeaders(),
       timeout: normalizedPayload.stream ? OLLAMA_STREAM_TIMEOUT_MS : OLLAMA_GENERATION_TIMEOUT_MS,
       signal: upstreamController.signal,
       body: JSON.stringify(normalizedPayload)
@@ -1578,7 +1604,7 @@ app.post('/api/chat/stream', async (req, res) => {
 
     const upstream = await httpFetch(`${endpoint}api/generate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getOllamaHeaders(),
       timeout: OLLAMA_STREAM_TIMEOUT_MS,
       signal: upstreamController.signal,
       body: JSON.stringify({
@@ -1800,7 +1826,7 @@ app.get('/api/settings', (req, res) => {
 });
 
 app.post('/api/settings', (req, res) => {
-  const { model, apiEndpoint, theme, systemInstructions, maxHistory, backendBaseUrl } =
+  const { model, apiEndpoint, theme, systemInstructions, maxHistory, backendBaseUrl, ollamaMode, ollamaApiKey } =
     req.body || {};
 
   const sanitizedBaseUrl = normalizeBaseUrlInput(backendBaseUrl);
@@ -1809,7 +1835,9 @@ app.post('/api/settings', (req, res) => {
     ...(model ? { model } : {}),
     ...(apiEndpoint ? { apiEndpoint } : {}),
     ...(theme ? { theme } : {}),
-    ...(systemInstructions ? { systemInstructions } : {})
+    ...(systemInstructions ? { systemInstructions } : {}),
+    ...(ollamaMode ? { ollamaMode } : {}),
+    ...(ollamaApiKey !== undefined ? { ollamaApiKey } : {})
   };
 
   if (sanitizedBaseUrl) {
@@ -1831,6 +1859,8 @@ app.post('/api/settings', (req, res) => {
       runtimeSettings.maxHistory = parsed;
     }
   }
+
+  console.log(`Settings updated - Mode: ${runtimeSettings.ollamaMode || 'local'}, Endpoint: ${runtimeSettings.apiEndpoint}`);
 
   return res.json({ current: runtimeSettings });
 });
@@ -1866,6 +1896,7 @@ app.get('/api/models', async (req, res) => {
     await ensureOllamaReachable(endpoint);
 
     const response = await httpFetch(`${endpoint}api/tags`, {
+      headers: getOllamaHeaders(null),
       timeout: 30000 // 30 second timeout for tags request
     });
     if (!response.ok) {

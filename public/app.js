@@ -2823,6 +2823,36 @@ function attachSettingsHandlers() {
     targetField: form?.elements?.systemInstructions
   });
 
+  // Setup cloud mode UI switching
+  const modeSelect = document.getElementById('ollama-mode-select');
+  const apiKeyLabel = document.getElementById('cloud-api-key-label');
+  const modeHelpLocal = document.getElementById('mode-help-local');
+  const modeHelpCloud = document.getElementById('mode-help-cloud');
+  const endpointInput = document.getElementById('ollama-endpoint-input');
+  const endpointHelp = document.getElementById('endpoint-help');
+
+  function updateModeUI() {
+    const mode = modeSelect.value;
+    const isCloud = mode === 'cloud';
+    apiKeyLabel.style.display = isCloud ? 'block' : 'none';
+    modeHelpLocal.style.display = isCloud ? 'none' : 'block';
+    modeHelpCloud.style.display = isCloud ? 'block' : 'none';
+    if (isCloud) {
+      endpointInput.value = 'https://ollama.com';
+      endpointInput.placeholder = 'https://ollama.com';
+      endpointHelp.textContent = 'Cloud endpoint (Ollama datacenter)';
+    } else {
+      if (endpointInput.value === 'https://ollama.com') {
+        endpointInput.value = 'http://127.0.0.1:11434';
+      }
+      endpointInput.placeholder = 'http://127.0.0.1:11434';
+      endpointHelp.textContent = 'Local endpoint (your device)';
+    }
+  }
+
+  modeSelect.addEventListener('change', updateModeUI);
+  updateModeUI();
+
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const formData = new FormData(form);
@@ -2933,6 +2963,12 @@ function populateSettingsForm(form) {
   form.elements.theme.value = state.settings.theme;
   form.elements.maxHistory.value = state.settings.maxHistory;
   form.elements.systemInstructions.value = state.settings.systemInstructions;
+  if (form.elements.ollamaMode) {
+    form.elements.ollamaMode.value = state.settings.ollamaMode || 'local';
+  }
+  if (form.elements.ollamaApiKey && state.settings.ollamaApiKey) {
+    form.elements.ollamaApiKey.value = state.settings.ollamaApiKey;
+  }
 }
 
 function setupInstructionPresetControls({
