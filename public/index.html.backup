@@ -343,7 +343,7 @@
                       </svg>
                     </button>
 
-                    <span class="option-divider">•</span>
+                    <span class="option-divider">|</span>
 
                     <span class="send-shortcut">⌘ + Enter to send</span>
                   </div>

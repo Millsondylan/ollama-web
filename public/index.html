@@ -12,7 +12,40 @@
     <meta http-equiv="Expires" content="0" />
     <link rel="manifest" href="/manifest.json" />
     <title>Ollama Web Console</title>
-    <link rel="stylesheet" href="/styles.css?v=20250115-REDESIGN-v1" />
+    <link rel="stylesheet" href="/styles.css?bust=1737059999" />
+    <style>
+      /* INLINE CRITICAL STYLES - CACHE PROOF */
+      .composer-input-wrapper-ultra {
+        display: flex !important;
+        gap: 0.75rem !important;
+        background: #f0f0f0 !important;
+        border: 2px solid #e0e0e0 !important;
+        border-radius: 12px !important;
+        padding: 0.5rem !important;
+      }
+      #send-btn, .send-btn-ultra {
+        width: 40px !important;
+        height: 40px !important;
+        background: #0084ff !important;
+        border-radius: 8px !important;
+      }
+      .message-bubble-user .message-content {
+        background: linear-gradient(135deg, #0084ff 0%, #0066cc 100%) !important;
+        border-radius: 18px !important;
+        padding: 1rem 1.25rem !important;
+        box-shadow: 0 2px 8px rgba(0, 132, 255, 0.2) !important;
+      }
+      .thinking-section {
+        background: linear-gradient(135deg, rgba(59, 130, 246, 0.05) 0%, rgba(59, 130, 246, 0.02) 100%) !important;
+        border: 1px solid rgba(59, 130, 246, 0.2) !important;
+        border-left: 4px solid #0084ff !important;
+        border-radius: 8px !important;
+        padding: 1rem !important;
+      }
+      .message-avatar.user {
+        background: linear-gradient(135deg, #0084ff 0%, #0066cc 100%) !important;
+      }
+    </style>
   </head>
   <body>
     <!-- Minimal App Structure - Claude.ai/ChatGPT Style -->
@@ -49,59 +82,68 @@
       </button>
     </div>
 
-    <!-- Sessions List (Simplified) -->
-    <div class="sessions-ultra">
-      <div id="sessions-today" class="session-group-ultra">
-        <div class="session-group-title-ultra">Today</div>
-        <div class="session-list-ultra"></div>
+    <section class="sidebar-section-ultra">
+      <p class="sidebar-section-label">Sessions</p>
+      <div class="sessions-ultra">
+        <div id="sessions-today" class="session-group-ultra">
+          <div class="session-group-title-ultra">Today</div>
+          <div class="session-list-ultra"></div>
+        </div>
+        <div id="sessions-yesterday" class="session-group-ultra">
+          <div class="session-group-title-ultra">Yesterday</div>
+          <div class="session-list-ultra"></div>
+        </div>
+        <div id="sessions-week" class="session-group-ultra">
+          <div class="session-group-title-ultra">Previous 7 Days</div>
+          <div class="session-list-ultra"></div>
+        </div>
+        <div id="sessions-older" class="session-group-ultra">
+          <div class="session-group-title-ultra">Previous 30 Days</div>
+          <div class="session-list-ultra"></div>
+        </div>
       </div>
-      <div id="sessions-yesterday" class="session-group-ultra">
-        <div class="session-group-title-ultra">Yesterday</div>
-        <div class="session-list-ultra"></div>
+    </section>
+
+    <section class="sidebar-section-ultra">
+      <p class="sidebar-section-label">Workspace</p>
+      <div class="sidebar-button-stack">
+        <button id="settings-btn-ultra" class="sidebar-btn-ultra">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v10M12 1A11 11 0 0 0 1 12h6m6 0H1M12 1a11 11 0 0 1 11 11h-6m0 0H1"/>
+          </svg>
+          <span>Settings</span>
+        </button>
       </div>
-      <div id="sessions-week" class="session-group-ultra">
-        <div class="session-group-title-ultra">Previous 7 Days</div>
-        <div class="session-list-ultra"></div>
+    </section>
+
+    <section class="sidebar-section-ultra">
+      <p class="sidebar-section-label">Navigation</p>
+      <div class="sidebar-button-stack">
+        <button id="nav-sessions-ultra" class="sidebar-btn-ultra">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+          <span>Sessions</span>
+        </button>
+
+        <button id="nav-history-ultra" class="sidebar-btn-ultra">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/>
+          </svg>
+          <span>History</span>
+        </button>
+
+        <button id="nav-api-ultra" class="sidebar-btn-ultra">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+          </svg>
+          <span>API</span>
+        </button>
       </div>
-      <div id="sessions-older" class="session-group-ultra">
-        <div class="session-group-title-ultra">Previous 30 Days</div>
-        <div class="session-list-ultra"></div>
-      </div>
-    </div>
+    </section>
 
-    <!-- Bottom: Navigation + Settings -->
-    <div class="sidebar-footer-ultra">
-      <!-- Settings Button (opens modal with all controls) -->
-      <button id="settings-btn-ultra" class="sidebar-btn-ultra">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v10M12 1A11 11 0 0 0 1 12h6m6 0H1M12 1a11 11 0 0 1 11 11h-6m0 0H1"/>
-        </svg>
-        <span>Settings</span>
-      </button>
-
-      <!-- Navigation Links -->
-      <button id="nav-sessions-ultra" class="sidebar-btn-ultra">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-        </svg>
-        <span>Sessions</span>
-      </button>
-
-      <button id="nav-history-ultra" class="sidebar-btn-ultra">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/>
-        </svg>
-        <span>History</span>
-      </button>
-
-      <button id="nav-api-ultra" class="sidebar-btn-ultra">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-        </svg>
-        <span>API</span>
-      </button>
-
-      <!-- Theme Toggle -->
+    <section class="sidebar-section-ultra">
+      <p class="sidebar-section-label">Theme</p>
       <button id="theme-toggle" class="sidebar-btn-ultra">
         <svg class="theme-icon-light" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
@@ -112,7 +154,7 @@
         <span class="theme-label-light">Dark mode</span>
         <span class="theme-label-dark" style="display: none;">Light mode</span>
       </button>
-    </div>
+    </section>
 
     <!-- Hidden elements for compatibility -->
     <div style="display: none;">
@@ -124,24 +166,86 @@
     </div>
   </aside>
 
-  <!-- Main Chat Area: CLEAN - No Headers! -->
+  <!-- Main Chat Area -->
   <main class="chat-area-ultra">
 
     <!-- Mobile Sidebar Toggle (Top-Left Corner Only) -->
-    <button id="sidebar-toggle-mobile" class="mobile-toggle-ultra">
+    <button
+      id="sidebar-toggle-mobile"
+      class="mobile-toggle-ultra"
+      aria-label="Toggle sidebar menu"
+      aria-controls="chat-sidebar"
+      aria-expanded="false"
+    >
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M3 12h18M3 6h18M3 18h18"/>
       </svg>
     </button>
 
-    <!-- Chat Messages (Clean, No Headers) -->
-    <div id="chat-history" class="chat-history-ultra"></div>
+    <div class="chat-content-container">
+      <header class="chat-session-header" aria-live="polite">
+        <div class="session-header-text">
+          <p class="session-eyebrow">Active session</p>
+          <h1 id="chat-meta-session" class="session-title">--</h1>
+          <p id="chat-meta-subtitle" class="session-subtitle"></p>
+        </div>
+        <div class="session-header-pills">
+          <span class="meta-pill" id="meta-model-pill">Model: --</span>
+          <span class="meta-pill" id="meta-preset-pill">Preset: Custom</span>
+          <span class="meta-pill" id="meta-thinking-pill">Thinking: MAX</span>
+        </div>
+      </header>
 
-    <!-- Typing Indicator -->
-    <div id="typing-indicator" class="typing-indicator-ultra" style="display: none;">
-      <div class="typing-content-ultra">
-        <div class="typing-dots-ultra">
-          <span></span><span></span><span></span>
+      <div class="chat-control-row">
+        <label class="chat-control-field">
+          <span>Model</span>
+          <select id="chat-page-model-selector"></select>
+        </label>
+        <label class="chat-control-field">
+          <span>Preset</span>
+          <select id="chat-page-preset-selector"></select>
+        </label>
+      </div>
+      <p id="chat-preset-description" class="chat-control-subtext">Preset details will appear here.</p>
+
+      <section id="chat-empty-hero" class="chat-empty-hero" aria-live="polite" aria-hidden="true" hidden>
+        <div class="chat-empty-copy">
+          <p class="hero-eyebrow">Welcome back</p>
+          <h2>What should we tackle today?</h2>
+          <p class="hero-paragraph">
+            Share a goal, paste requirements, or drop a repo summary. I'll walk through discovery,
+            implementation, and verification while keeping thinking visible.
+          </p>
+          <ul class="hero-highlights">
+            <li>Live thinking feed before every answer</li>
+            <li>Session-specific instructions &amp; attachments</li>
+            <li>Quick prompts to jumpstart the conversation</li>
+          </ul>
+        </div>
+        <div class="chat-empty-actions">
+          <div class="hero-session-chip" id="hero-session-pill">Session: --</div>
+          <div class="quick-actions-grid" id="chat-quick-actions"></div>
+        </div>
+      </section>
+
+      <!-- Chat Messages -->
+      <div id="chat-history" class="chat-history-ultra"></div>
+
+      <!-- Typing Indicator -->
+      <div
+        id="typing-indicator"
+        class="typing-indicator-ultra"
+        role="status"
+        aria-live="polite"
+        aria-hidden="true"
+        aria-busy="false"
+        style="display: none;"
+      >
+        <div class="typing-content-ultra">
+          <div class="typing-dots-ultra" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </div>
+          <span class="typing-text-ultra">Assistant is thinking...</span>
         </div>
       </div>
     </div>
@@ -169,14 +273,13 @@
         </div>
 
         <div class="composer-footer-ultra">
-          <span id="char-counter" class="char-count-ultra">0 / 4000</span>
+          <span id="char-counter" class="char-count-ultra">0 characters</span>
         </div>
       </div>
     </div>
 
     <!-- Hidden elements for compatibility -->
     <div style="display: none;">
-      <div id="chat-quick-actions"></div>
       <div id="ai-disclosure"></div>
       <div id="ai-disclosure-message"></div>
       <button id="ai-disclosure-toggle"></button>
@@ -225,7 +328,7 @@
               <option>Loading models...</option>
             </select>
             <div id="active-model-display" class="status-display-ultra">
-              <small style="color: var(--text-secondary);">Current: <span id="active-model">—</span></small>
+              <small style="color: var(--text-secondary);">Current: <span id="active-model">--</span></small>
             </div>
           </div>
 
@@ -319,6 +422,7 @@
     </template>
 
     <template id="settings-page">
+      <div class="app-page-shell">
       <div class="page-with-nav">
         <button class="back-to-chat-btn" onclick="window.navigateToPage('chat')">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -412,9 +516,11 @@
         </form>
         <pre id="proxy-response" class="panel proxy-response"></pre>
       </section>
+      </div>
     </template>
 
     <template id="history-page">
+      <div class="app-page-shell">
       <div class="page-with-nav">
         <button class="back-to-chat-btn" onclick="window.navigateToPage('chat')">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -437,9 +543,11 @@
         <h2>Local History</h2>
         <div id="local-history"></div>
       </section>
+      </div>
     </template>
 
     <template id="sessions-page">
+      <div class="app-page-shell">
       <div class="page-with-nav">
         <button class="back-to-chat-btn" onclick="window.navigateToPage('chat')">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -492,9 +600,11 @@
           </div>
         </form>
       </section>
+      </div>
     </template>
 
     <template id="api-page">
+      <div class="app-page-shell">
       <div class="page-with-nav">
         <button class="back-to-chat-btn" onclick="window.navigateToPage('chat')">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -543,32 +653,33 @@
           </table>
         </div>
       </section>
+      </div>
     </template>
 
-    <script src="/app.js?v=20250115-REDESIGN-v1" type="module"></script>
+    <script src="/app.js?bust=1737059999" type="module"></script>
     <script>
-      // Clear old service worker cache and register new one
+      // DISABLE SERVICE WORKER COMPLETELY
+      console.log('[CACHE] Service worker DISABLED - using fresh files');
       if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          // Unregister all old service workers
-          navigator.serviceWorker.getRegistrations().then((registrations) => {
-            registrations.forEach((registration) => {
-              registration.unregister();
-              console.log('[SW] Unregistered old service worker');
+        navigator.serviceWorker.getRegistrations().then((registrations) => {
+          registrations.forEach((registration) => {
+            registration.unregister();
+            console.log('[SW] UNREGISTERED:', registration);
+          });
+        });
+
+        if ('caches' in window) {
+          caches.keys().then((cacheNames) => {
+            cacheNames.forEach((cacheName) => {
+              caches.delete(cacheName);
+              console.log('[SW] DELETED CACHE:', cacheName);
             });
           });
+        }
+      }
 
-          // Clear all caches
-          if ('caches' in window) {
-            caches.keys().then((cacheNames) => {
-              cacheNames.forEach((cacheName) => {
-                caches.delete(cacheName);
-                console.log('[SW] Cleared cache:', cacheName);
-              });
-            });
-          }
-
-          // Register new service worker
+      // DO NOT REGISTER SERVICE WORKER
+      /*
           navigator.serviceWorker.register('/sw.js')
             .then((registration) => {
               console.log('[SW] Service worker registered:', registration.scope);

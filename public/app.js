@@ -17,6 +17,7 @@ const STORAGE_KEYS = {
 };
 
 const THINKING_PREF_KEY = STORAGE_KEYS.thinking;
+const DEFAULT_THINKING_MODE = 'max';
 const THINKING_ABORT_KEYWORDS = [
   'operation was aborted',
   'user aborted',
@@ -40,21 +41,25 @@ const QUICK_ACTIONS = [
   {
     id: 'qa-summary',
     label: 'Summarize last reply',
+    description: 'Capture key takeaways and next actions.',
     prompt: "Summarize the assistant's last response and list the next concrete steps."
   },
   {
     id: 'qa-clarify',
     label: 'Ask for clarity',
+    description: 'Highlight missing requirements before coding.',
     prompt: 'Clarify the current requirements and note any missing details before coding.'
   },
   {
     id: 'qa-review',
     label: 'Review session plan',
+    description: 'Audit instructions, risks, and blockers.',
     prompt: "Review this session's instructions and highlight potential risks or blockers."
   },
   {
     id: 'qa-compare',
     label: 'Compare models',
+    description: 'Recommend the best model for this task.',
     prompt: 'Compare the available models and recommend the best choice for this task.'
   }
 ];
@@ -76,6 +81,7 @@ const state = {
   lastGeneratedSecret: null,
   availableModels: [],
   thinkingEnabled: loadThinkingPreference(),
+  thinkingMode: DEFAULT_THINKING_MODE,
   instructionPresets: loadInstructionPresets()
 };
 
@@ -143,7 +149,8 @@ async function bootstrapSettings() {
     const normalizedBase = normalizeBaseUrl(data.current?.backendBaseUrl);
     // Preserve client-side settings like aiCoderEnabled
     const preservedSettings = {
-      aiCoderEnabled: state.settings?.aiCoderEnabled !== false
+      aiCoderEnabled: state.settings?.aiCoderEnabled !== false,
+      enableStructuredPrompts: state.settings?.enableStructuredPrompts === true
     };
     state.settings = {
       ...data.current,
@@ -151,6 +158,15 @@ async function bootstrapSettings() {
       ...preservedSettings
     };
     state.baseUrl = normalizedBase;
+    state.settings.thinkingMode = DEFAULT_THINKING_MODE;
+    state.thinkingMode = DEFAULT_THINKING_MODE;
+    state.settings.enableStructuredPrompts =
+      typeof data.current?.enableStructuredPrompts !== 'undefined'
+        ? data.current.enableStructuredPrompts === true
+        : preservedSettings.enableStructuredPrompts === true;
+    if (typeof state.settings.enableStructuredPrompts === 'undefined') {
+      state.settings.enableStructuredPrompts = false;
+    }
     applyTheme(state.settings.theme);
     persistClientSettings();
     notifySettingsSubscribers();
@@ -170,7 +186,7 @@ async function bootstrapSettings() {
       elements.status.classList.add('badge-offline');
     }
     if (elements.activeModel) {
-      elements.activeModel.textContent = 'model: —';
+      elements.activeModel.textContent = 'model: --';
     }
     restoreClientSettings();
     if (!state.instructionPresets || !state.instructionPresets.length) {
@@ -180,10 +196,12 @@ async function bootstrapSettings() {
     state.baseUrl = normalizeBaseUrl(state.settings?.backendBaseUrl);
     // Preserve aiCoderEnabled during error recovery
     const aiCoderSetting = state.settings?.aiCoderEnabled;
+    const structuredSetting = state.settings?.enableStructuredPrompts;
     state.settings = {
       ...(state.settings || {}),
       backendBaseUrl: state.baseUrl,
-      aiCoderEnabled: aiCoderSetting !== false
+      aiCoderEnabled: aiCoderSetting !== false,
+      enableStructuredPrompts: structuredSetting === true
     };
     notifySettingsSubscribers();
   }
@@ -282,14 +300,19 @@ async function loadServerHistory(sessionId = state.activeSessionId) {
   if (!sessionId) return;
   try {
     const data = await fetchJson(`/api/history?sessionId=${encodeURIComponent(sessionId)}`);
-    state.sessionHistories[sessionId] = data.history || [];
+    const serverHistory = Array.isArray(data.history) ? data.history : [];
+    const localBackup = Array.isArray(state.localHistory[sessionId]) ? state.localHistory[sessionId] : [];
+    const mergedHistory = serverHistory.length ? serverHistory : localBackup;
+    state.sessionHistories[sessionId] = mergedHistory;
     if (sessionId === state.activeSessionId) {
       state.chat = state.sessionHistories[sessionId];
     }
-    state.localHistory[sessionId] = state.sessionHistories[sessionId];
+    state.localHistory[sessionId] = mergedHistory;
     persistLocalHistory();
     if (state.currentPage === 'chat') {
       renderChatMessages();
+    } else {
+      toggleEmptyHero(!(state.sessionHistories[sessionId] && state.sessionHistories[sessionId].length));
     }
     if (state.currentPage === 'history') {
       renderHistoryPage();
@@ -436,7 +459,7 @@ function renderApiPage() {
       row.innerHTML = `
         <td>${key.name}</td>
         <td>${formatDate(key.createdAt)}</td>
-        <td>${key.lastUsedAt ? formatDate(key.lastUsedAt) : '—'}</td>
+        <td>${key.lastUsedAt ? formatDate(key.lastUsedAt) : '--'}</td>
         <td><button data-key="${key.id}" class="ghost-btn danger">Delete</button></td>
       `;
       row.querySelector('button').onclick = async () => {
@@ -679,14 +702,16 @@ function attachChatHandlers() {
   renderChatSessionsList();
   renderAiDisclosure();
   renderQuickActions();
+  renderChatMeta();
 
   if (modelSelector) {
     modelSelector.addEventListener('change', (event) => {
       state.settings.model = event.target.value;
       persistClientSettings();
-      elements.activeModel.textContent = `model: ${state.settings.model || '—'}`;
+      elements.activeModel.textContent = `model: ${state.settings.model || '--'}`;
       updateThinkingStatus();
       renderAiDisclosure();
+      renderChatMeta();
     });
   }
 
@@ -728,6 +753,38 @@ function attachChatHandlers() {
     }
   });
 
+  // Enable/disable send button + update character counter + auto-resize textarea
+  const charCounter = document.getElementById('char-counter');
+
+  if (input) {
+    ['maxlength', 'max', 'data-max'].forEach((attr) => input.removeAttribute(attr));
+  }
+
+  function updateInputState() {
+    const text = input.value;
+    const length = text.length;
+    const isEmpty = text.trim().length === 0;
+    const isSessionSending = state.sessionSendingStates[state.activeSessionId];
+
+    // Enable send button only if has text and not currently sending
+    sendBtn.disabled = isEmpty || isSessionSending;
+
+    // Update character counter
+    if (charCounter) {
+      charCounter.textContent = `${length} characters`;
+      charCounter.style.color = '';
+    }
+
+    // Auto-resize textarea to fit content
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 120) + 'px'; // Max 120px
+  }
+
+  input.addEventListener('input', updateInputState);
+
+  // Initialize on page load
+  updateInputState();
+
   clearBtn.addEventListener('click', async () => {
     await fetchJson(`/api/history?sessionId=${encodeURIComponent(state.activeSessionId)}`, {
       method: 'DELETE'
@@ -757,59 +814,101 @@ function attachChatHandlers() {
     });
   }
 
+  const getSidebarOverlay = () => {
+    let overlay = document.querySelector('.sidebar-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.className = 'sidebar-overlay';
+      overlay.addEventListener('click', () => closeMobileSidebar());
+      document.body.appendChild(overlay);
+    }
+    return overlay;
+  };
+
+  function openMobileSidebar() {
+    if (!chatSidebar) return;
+    chatSidebar.classList.add('open');
+    sidebarToggleMobile?.setAttribute('aria-expanded', 'true');
+    const overlay = getSidebarOverlay();
+    overlay.classList.add('visible');
+    document.body.classList.add('sidebar-open');
+  }
+
+  function closeMobileSidebar() {
+    if (!chatSidebar) return;
+    chatSidebar.classList.remove('open');
+    sidebarToggleMobile?.setAttribute('aria-expanded', 'false');
+    const overlay = document.querySelector('.sidebar-overlay');
+    if (overlay) {
+      overlay.classList.remove('visible');
+    }
+    document.body.classList.remove('sidebar-open');
+  }
+
   if (sidebarToggleMobile) {
     sidebarToggleMobile.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (chatSidebar) {
-        chatSidebar.classList.toggle('open');
-
-        // Show/hide overlay
-        let overlay = document.querySelector('.sidebar-overlay');
-        if (!overlay) {
-          overlay = document.createElement('div');
-          overlay.className = 'sidebar-overlay';
-          document.body.appendChild(overlay);
-        }
-
-        if (chatSidebar.classList.contains('open')) {
-          overlay.classList.add('visible');
-        } else {
-          overlay.classList.remove('visible');
-        }
-      }
-    });
-
-    // Close sidebar when clicking overlay
-    document.addEventListener('click', (e) => {
-      const overlay = document.querySelector('.sidebar-overlay');
-      if (chatSidebar && overlay && overlay.classList.contains('visible')) {
-        if (!chatSidebar.contains(e.target) && !sidebarToggleMobile.contains(e.target)) {
-          chatSidebar.classList.remove('open');
-          overlay.classList.remove('visible');
-        }
-      }
-    });
-
-    // Close sidebar on Escape
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && chatSidebar) {
-        chatSidebar.classList.remove('open');
-        const overlay = document.querySelector('.sidebar-overlay');
-        if (overlay) overlay.classList.remove('visible');
+      if (chatSidebar?.classList.contains('open')) {
+        closeMobileSidebar();
+      } else {
+        openMobileSidebar();
       }
     });
   }
 
+  document.addEventListener('click', (e) => {
+    if (!chatSidebar?.classList.contains('open')) {
+      return;
+    }
+    if (
+      chatSidebar.contains(e.target) ||
+      sidebarToggleMobile?.contains(e.target)
+    ) {
+      return;
+    }
+    closeMobileSidebar();
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && chatSidebar?.classList.contains('open')) {
+      closeMobileSidebar();
+    }
+  });
+
   // Chat menu toggle
   if (chatMenuBtn && chatMenu) {
-    chatMenuBtn.addEventListener('click', () => {
-      chatMenu.style.display = chatMenu.style.display === 'none' ? 'block' : 'none';
+    chatMenuBtn.setAttribute('aria-haspopup', 'menu');
+    chatMenuBtn.setAttribute('aria-expanded', 'false');
+
+    const openChatMenu = () => {
+      chatMenu.style.display = 'block';
+      chatMenuBtn.setAttribute('aria-expanded', 'true');
+    };
+
+    const closeChatMenu = () => {
+      chatMenu.style.display = 'none';
+      chatMenuBtn.setAttribute('aria-expanded', 'false');
+    };
+
+    chatMenuBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      if (chatMenu.style.display === 'block') {
+        closeChatMenu();
+      } else {
+        openChatMenu();
+      }
     });
 
     // Close menu when clicking outside
     document.addEventListener('click', (e) => {
-      if (chatMenu && chatMenuBtn && !chatMenu.contains(e.target) && !chatMenuBtn.contains(e.target)) {
-        chatMenu.style.display = 'none';
+      if (!chatMenu.contains(e.target) && !chatMenuBtn.contains(e.target)) {
+        closeChatMenu();
+      }
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeChatMenu();
       }
     });
   }
@@ -846,7 +945,7 @@ function attachChatHandlers() {
     // Update active model display
     const activeModelDisplay = document.getElementById('active-model');
     if (activeModelDisplay) {
-      activeModelDisplay.textContent = state.settings?.model || '—';
+      activeModelDisplay.textContent = state.settings?.model || '--';
     }
 
     // Initialize GitHub controls
@@ -894,7 +993,7 @@ function attachChatHandlers() {
         <div class="github-repo-item" data-repo-id="${repo.id}">
           <div class="github-repo-info">
             <div class="github-repo-name">${repo.name}</div>
-            <div class="github-repo-meta">${repo.fileCount} files · Connected ${new Date(repo.connectedAt).toLocaleDateString()}</div>
+            <div class="github-repo-meta">${repo.fileCount} files | Connected ${new Date(repo.connectedAt).toLocaleDateString()}</div>
           </div>
           <div class="github-repo-actions">
             <button class="github-repo-remove" data-repo-id="${repo.id}" title="Remove repository">
@@ -1006,6 +1105,7 @@ function attachChatHandlers() {
       state.currentPage = 'sessions';
       renderNav();
       renderPage('sessions');
+      closeMobileSidebar();
     });
   }
 
@@ -1015,6 +1115,7 @@ function attachChatHandlers() {
       state.currentPage = 'history';
       renderNav();
       renderPage('history');
+      closeMobileSidebar();
     });
   }
 
@@ -1024,6 +1125,7 @@ function attachChatHandlers() {
       state.currentPage = 'api';
       renderNav();
       renderPage('api');
+      closeMobileSidebar();
     });
   }
 
@@ -1036,13 +1138,19 @@ function attachChatHandlers() {
   }
 
   function setThinking(active, sessionId = state.activeSessionId) {
-    const spinner = document.getElementById('thinking-indicator');
-    if (!spinner) return;
-    spinner.classList.toggle('active', active);
-    // Only disable send button if THIS session is sending
-    const isThisSessionSending = state.sessionSendingStates[state.activeSessionId];
-    sendBtn.disabled = isThisSessionSending;
+    const indicator = document.getElementById('typing-indicator');
+    if (indicator) {
+      indicator.style.display = active ? 'block' : 'none';
+      indicator.classList.toggle('active', active);
+      indicator.setAttribute('aria-hidden', active ? 'false' : 'true');
+      indicator.setAttribute('aria-busy', active ? 'true' : 'false');
+    }
+    // Update session sending state
     state.sessionSendingStates[sessionId] = active;
+    // Re-check input state to update send button (considers both text and sending state)
+    if (typeof updateInputState === 'function') {
+      updateInputState();
+    }
   }
 
   async function sendMessage() {
@@ -1075,7 +1183,9 @@ function attachChatHandlers() {
 
       // Enhance message for AI coding if enabled
       let processedMessage = enhanceAICoderPrompt(message);
-      processedMessage = addXMLStructurePrompt(processedMessage);
+      if (isStructuredPromptEnabled()) {
+        processedMessage = addXMLStructurePrompt(processedMessage);
+      }
 
       const payload = {
         message: originalMessage, // Original for storage
@@ -1085,7 +1195,8 @@ function attachChatHandlers() {
         instructions: instructionsToUse,
         apiEndpoint: state.settings?.apiEndpoint,
         sessionId: state.activeSessionId,
-        thinkingEnabled: state.thinkingEnabled
+        thinkingEnabled: state.thinkingEnabled,
+        thinkingMode: state.thinkingMode
       };
 
       let triedThinkingStream = false;
@@ -1102,8 +1213,9 @@ function attachChatHandlers() {
             console.warn('[WARN] Thinking stream failed, falling back to standard chat:', streamError);
             thinkingStreamFailed = true;
             showThinkingStatusError(streamError.message || 'Thinking stream failed');
-          const fallbackMessage = buildThinkingFallbackMessage(streamError);
-          updateThinkingEntry(liveThinking, fallbackMessage);
+            if (liveThinking) {
+              liveThinking.remove();
+            }
           }
         } else {
           thinkingStreamFailed = true;
@@ -1120,13 +1232,29 @@ function attachChatHandlers() {
         body: JSON.stringify(payload)
       });
 
-      state.sessionHistories[state.activeSessionId] = data.history || [];
-      state.chat = state.sessionHistories[state.activeSessionId];
-      state.localHistory[state.activeSessionId] = data.history || [];
-      persistLocalHistory();
+      const fallbackEntry =
+        !Array.isArray(data.history) || !data.history.length
+          ? createLocalHistoryEntry({
+              sessionId: state.activeSessionId,
+              user: originalMessage,
+              assistant: data.response,
+              thinking: data.thinking,
+              model: payload.model,
+              endpoint: payload.apiEndpoint
+            })
+          : null;
+      const synchronizedHistory = synchronizeSessionHistory(
+        state.activeSessionId,
+        data.history,
+        fallbackEntry
+      );
+      state.chat = synchronizedHistory;
       clearLiveEntries();
       renderChatMessages();
       renderHistoryPage();
+      if (thinkingStreamFailed) {
+        clearThinkingStatusError();
+      }
     } catch (error) {
       console.error('Error sending message:', error);
       const errorMessage = error.message || 'Failed to send message';
@@ -1151,7 +1279,7 @@ function attachChatHandlers() {
         elements.status.textContent = 'offline';
         elements.status.classList.remove('badge-online');
         elements.status.classList.add('badge-offline');
-        elements.activeModel.textContent = 'model: —';
+        elements.activeModel.textContent = 'model: --';
       }
     } finally {
       setThinking(false, currentSessionId);
@@ -1181,6 +1309,7 @@ function attachChatHandlers() {
     const decoder = new TextDecoder();
     let buffer = '';
     let aggregated = '';
+    let latestSplit = { thinking: '', response: '', hasMarker: false, rawSegment: '' };
 
     const processEvent = (rawEvent) => {
       if (!rawEvent) return;
@@ -1193,16 +1322,23 @@ function attachChatHandlers() {
         const chunk = JSON.parse(payloadStr);
         if (chunk.token) {
           aggregated += chunk.token;
+          latestSplit = splitThinkingPanels(aggregated);
+          const thinkingPreviewRaw = latestSplit.hasMarker ? latestSplit.thinking : '';
+          const thinkingPreview = resolveRenderableThinking(thinkingPreviewRaw);
           console.log('[DEBUG] Token received:', chunk.token, 'Total:', aggregated.length);
-          updateThinkingEntry(liveThinking, aggregated);
+          updateThinkingEntry(liveThinking, thinkingPreview);
         }
         if (chunk.error) {
           throw new Error(chunk.error);
         }
         if (chunk.done) {
-          // Finalize the thinking entry with the response
-          if (liveThinking && chunk.response) {
-            finalizeThinkingEntry(liveThinking, aggregated, chunk.response);
+          const responseText = chunk.response || latestSplit.response || aggregated;
+          let thinkingText = resolveRenderableThinking(chunk.thinking, latestSplit.hasMarker ? latestSplit.thinking : '');
+          if (!thinkingText && latestSplit && !latestSplit.hasMarker && aggregated.trim().length) {
+            console.debug('[thinking-stream] Stream completed without detectable reasoning markers');
+          }
+          if (liveThinking) {
+            finalizeThinkingEntry(liveThinking, thinkingText, responseText);
           }
 
           // Remove user live entry only
@@ -1210,14 +1346,34 @@ function attachChatHandlers() {
             liveUser.remove();
           }
 
-          state.sessionHistories[state.activeSessionId] = chunk.history || [];
-          state.chat = state.sessionHistories[state.activeSessionId];
-          state.localHistory[state.activeSessionId] = chunk.history || [];
-          persistLocalHistory();
+          const fallbackEntry =
+            !Array.isArray(chunk.history) || !chunk.history.length
+              ? createLocalHistoryEntry({
+                  sessionId: state.activeSessionId,
+                  user: payload.message,
+                  assistant: responseText,
+                  thinking: thinkingText,
+                  model: payload.model,
+                  endpoint: payload.apiEndpoint
+                })
+              : null;
+
+          const synchronizedHistory = synchronizeSessionHistory(
+            state.activeSessionId,
+            chunk.history,
+            fallbackEntry
+          );
+          state.chat = synchronizedHistory;
+          clearLiveEntries();
+          renderChatMessages();
           renderHistoryPage();
           return true;
         }
       } catch (error) {
+        console.warn('[thinking-stream] Failed to parse SSE chunk', {
+          error: error.message,
+          rawEvent
+        });
         throw new Error(error.message || 'Unable to parse stream');
       }
       return false;
@@ -1247,6 +1403,7 @@ function attachChatHandlers() {
         }
       }
     } catch (streamError) {
+      console.error('[thinking-stream] SSE aborted', streamError);
       if (reader?.cancel) {
         try {
           await reader.cancel();
@@ -1331,6 +1488,8 @@ function renderModelSelector() {
     }
     select.appendChild(option);
   });
+
+  renderChatPageModelSelector();
 }
 
 function resolveModelForRequest() {
@@ -1349,6 +1508,97 @@ function resolveModelForRequest() {
     );
   });
   return thinkingCandidate ? thinkingCandidate.name : baseModel;
+}
+
+function renderChatPageModelSelector() {
+  const select = document.getElementById('chat-page-model-selector');
+  if (!select) return;
+  select.innerHTML = '';
+  select.disabled = !state.availableModels.length;
+  if (!state.availableModels.length) {
+    select.innerHTML = '<option value="">No models available</option>';
+    return;
+  }
+  state.availableModels.forEach((model) => {
+    const option = document.createElement('option');
+    option.value = model.name;
+    option.textContent = model.name;
+    if (model.name === state.settings?.model) {
+      option.selected = true;
+    }
+    select.appendChild(option);
+  });
+
+  select.onchange = (event) => {
+    state.settings.model = event.target.value;
+    state.settings.thinkingMode = DEFAULT_THINKING_MODE;
+    state.thinkingMode = DEFAULT_THINKING_MODE;
+    persistClientSettings();
+    if (elements.activeModel) {
+      elements.activeModel.textContent = `model: ${state.settings.model || '--'}`;
+    }
+    updateThinkingStatus();
+    renderChatMeta();
+  };
+}
+
+async function applyPresetToActiveSession(presetId) {
+  if (!state.activeSessionId) return;
+  const preset = findInstructionPresetById(presetId);
+  const instructions = preset ? preset.instructions : '';
+  const presetValue = preset ? preset.id : null;
+  try {
+    await fetchJson(`/api/sessions/${encodeURIComponent(state.activeSessionId)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ instructions, presetId: presetValue })
+    });
+    await loadSessions();
+    await loadServerHistory(state.activeSessionId);
+    updateSessionInstructionsPreview();
+    renderSessionSelector();
+  } catch (error) {
+    console.error('Failed to apply preset from chat controls', error);
+  }
+}
+
+function updateChatPresetDescription(presetId) {
+  const descriptionNode = document.getElementById('chat-preset-description');
+  if (!descriptionNode) return;
+  if (!presetId) {
+    descriptionNode.textContent = 'Custom instructions will be used for this session.';
+    return;
+  }
+  const preset = getInstructionPresetCatalog().find((item) => item.id === presetId);
+  if (preset && preset.description) {
+    descriptionNode.textContent = preset.description;
+  } else {
+    descriptionNode.textContent = 'Custom instructions will be used for this session.';
+  }
+}
+
+function renderChatPagePresetSelector() {
+  const select = document.getElementById('chat-page-preset-selector');
+  if (!select) return;
+  const presets = getInstructionPresetCatalog();
+  const customOption = '<option value="">Custom / manual</option>';
+  const presetOptions = presets.map((preset) => `<option value="${preset.id}">${preset.label}</option>`).join('');
+  select.innerHTML = `${customOption}${presetOptions}`;
+  const sessionsArray = Array.isArray(state.sessions) ? state.sessions : [];
+  const session = sessionsArray.find((item) => item.id === state.activeSessionId);
+  if (session?.presetId) {
+    select.value = session.presetId;
+  } else {
+    select.value = '';
+  }
+  select.disabled = !sessionsArray.length;
+  updateChatPresetDescription(select.value || null);
+  select.onchange = async (event) => {
+    const value = event.target.value || null;
+    event.target.disabled = true;
+    await applyPresetToActiveSession(value);
+    event.target.disabled = false;
+    renderChatPagePresetSelector();
+  };
 }
 
 // Change the active session locally and on the server so prompts + history stay scoped.
@@ -1380,6 +1630,7 @@ async function setActiveSession(sessionId, options = {}) {
   renderHistoryPage();
   notifySettingsSubscribers();
   renderAiDisclosure();
+  renderChatMeta();
 
   if (options.focusChat) {
     state.currentPage = 'chat';
@@ -1397,6 +1648,7 @@ function updateSessionInstructionsPreview() {
     previewEl.textContent = '';
     previewEl.hidden = true;
     renderAiDisclosure();
+    renderChatMeta();
     return;
   }
 
@@ -1404,9 +1656,10 @@ function updateSessionInstructionsPreview() {
   const previewText = session.instructions
     ? session.instructions.trim().slice(0, 140) + (session.instructions.length > 140 ? '…' : '')
     : 'No custom instructions';
-  previewEl.textContent = `${previewText} • ${attachmentsCount} attachment${attachmentsCount === 1 ? '' : 's'}`;
+  previewEl.textContent = `${previewText} | ${attachmentsCount} attachment${attachmentsCount === 1 ? '' : 's'}`;
   previewEl.hidden = !session.instructions;
   renderAiDisclosure();
+  renderChatMeta();
 }
 
 function updatePresetIndicator() {
@@ -1433,6 +1686,7 @@ function updatePresetIndicator() {
     indicator.textContent = 'Custom';
     indicator.className = 'preset-indicator custom';
   }
+  renderChatMeta();
 }
 
 function updateThinkingStatus(effectiveModel = resolveModelForRequest()) {
@@ -1443,17 +1697,20 @@ function updateThinkingStatus(effectiveModel = resolveModelForRequest()) {
     status.classList.remove('active');
     status.textContent = 'Thinking mode off';
     renderAiDisclosure();
+    renderChatMeta();
     return;
   }
   status.classList.add('active');
+  const modeLabel = (state.thinkingMode || 'default').toUpperCase();
   if (effectiveModel && effectiveModel !== state.settings?.model) {
-    status.textContent = `Thinking with ${effectiveModel}`;
+    status.textContent = `Thinking with ${effectiveModel} (${modeLabel})`;
   } else if (effectiveModel) {
-    status.textContent = `Thinking with ${effectiveModel} (live stream)`;
+    status.textContent = `Thinking with ${effectiveModel} (${modeLabel})`;
   } else {
-    status.textContent = 'Thinking enabled (no model selected)';
+    status.textContent = `Thinking enabled (${modeLabel})`;
   }
   renderAiDisclosure();
+  renderChatMeta();
 }
 
 function showThinkingStatusError(message) {
@@ -1528,20 +1785,44 @@ function renderChatSessionsList() {
     }
   });
 
+  const formatSessionMeta = (session, sessionHistory) => {
+    const metaParts = [];
+    const messageCount = sessionHistory.length;
+    if (messageCount) {
+      metaParts.push(`${messageCount} msg${messageCount === 1 ? '' : 's'}`);
+    }
+    const updatedAt = sessionHistory.length
+      ? sessionHistory[sessionHistory.length - 1]?.timestamp
+      : session.updatedAt;
+    if (updatedAt) {
+      const date = new Date(updatedAt);
+      metaParts.push(date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }));
+    }
+    if (!metaParts.length && session.createdAt) {
+      const created = new Date(session.createdAt);
+      metaParts.push(`Created ${created.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`);
+    }
+    if (!metaParts.length) {
+      metaParts.push('No activity yet');
+    }
+    return metaParts.join(' | ');
+  };
+
   // Helper to create session button
   const createSessionButton = (session) => {
     const btn = document.createElement('button');
-    btn.className = 'session-item';
+    btn.className = 'session-item-ultra session-item';
     if (session.id === state.activeSessionId) {
       btn.classList.add('active');
     }
 
-    // Get session title (use first message or session name)
     const sessionHistory = state.sessionHistories[session.id] || [];
     const firstMessage = sessionHistory.length > 0 ? sessionHistory[0].user : null;
-    const title = firstMessage
-      ? (firstMessage.length > 40 ? firstMessage.substring(0, 40) + '...' : firstMessage)
-      : (session.name || 'New Chat');
+    const fallbackName = session.name && session.name !== 'New Chat' ? session.name : null;
+    const titleSource = firstMessage || fallbackName || 'New Chat';
+    const title =
+      titleSource && titleSource.length > 40 ? `${titleSource.substring(0, 40)}...` : (titleSource || 'New Chat');
+    const metaText = formatSessionMeta(session, sessionHistory);
 
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'session-delete-btn';
@@ -1593,11 +1874,14 @@ function renderChatSessionsList() {
       }
     });
 
-    const titleDiv = document.createElement('div');
-    titleDiv.className = 'session-item-title';
-    titleDiv.textContent = title;
+    const copyDiv = document.createElement('div');
+    copyDiv.className = 'session-item-copy';
+    copyDiv.innerHTML = `
+      <span class="session-item-title-text">${escapeHtml(title)}</span>
+      <span class="session-item-meta">${escapeHtml(metaText)}</span>
+    `;
 
-    btn.appendChild(titleDiv);
+    btn.appendChild(copyDiv);
     btn.appendChild(deleteBtn);
 
     btn.addEventListener('click', async () => {
@@ -1644,10 +1928,14 @@ function renderChatSessionsList() {
   }
 
   // Fallback: render into old container for compatibility
-  if (container) {
+  const hasUltraSections = Boolean(todayContainer || yesterdayContainer || weekContainer || olderContainer);
+  if (!hasUltraSections && container) {
+    container.innerHTML = '';
     state.sessions.forEach((session) => {
       container.appendChild(createSessionButton(session));
     });
+  } else if (container) {
+    container.innerHTML = '';
   }
 }
 
@@ -1840,10 +2128,14 @@ function renderChatMessages() {
       ? state.sessionHistories[sessionId]
       : state.localHistory[sessionId]) || [];
 
+  renderChatMeta();
+
   if (!history || !history.length) {
-    container.innerHTML = '<div class="empty-state"><p class="muted">No messages yet. Start the conversation!</p></div>';
+    toggleEmptyHero(true);
     return;
   }
+
+  toggleEmptyHero(false);
 
   history.forEach((entry, index) => {
     const conversation = document.createElement('div');
@@ -1886,7 +2178,10 @@ function renderChatMessages() {
       assistantBubble.appendChild(avatar);
 
       // Parse XML tags from assistant response
-      const { tags, remainingContent } = parseXMLTags(entry.assistant);
+      const splitSegments = splitThinkingPanels(entry.assistant || '');
+      const assistantBody = splitSegments.response || entry.assistant || '';
+      const derivedThinking = splitSegments.thinking;
+      const { tags, remainingContent } = parseXMLTags(assistantBody);
 
       const contentWrapper = document.createElement('div');
       contentWrapper.className = 'assistant-content-wrapper';
@@ -1902,6 +2197,33 @@ function renderChatMessages() {
         <span class="message-timestamp">${new Date(entry.timestamp || Date.now()).toLocaleTimeString()}</span>
       `;
       messageContent.appendChild(messageHeader);
+
+      const thinkingSource = resolveRenderableThinking(entry.thinking, derivedThinking);
+      if (thinkingSource) {
+        const wordCount = thinkingSource.split(/\s+/).filter(Boolean).length;
+        const thinkingSection = document.createElement('div');
+        thinkingSection.className = 'thinking-section';
+        thinkingSection.innerHTML = `
+          <div class="thinking-header" onclick="this.parentElement.classList.toggle('collapsed')">
+            <div class="thinking-header-left">
+              <svg class="thinking-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>
+              </svg>
+              <span class="thinking-label">
+                Thinking Process
+                <span class="thinking-word-count">${wordCount} words</span>
+              </span>
+            </div>
+            <svg class="thinking-toggle" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </div>
+          <div class="thinking-content">
+            <div class="thinking-text">${escapeHtml(thinkingSource).replace(/\n/g, '<br>')}</div>
+          </div>
+        `;
+        messageContent.appendChild(thinkingSection);
+      }
 
       // Render structured sections for each tag
       const structuredOrder = ['role', 'context', 'goal', 'requirements', 'analysis', 'solution', 'implementation', 'todos', 'verification', 'notes'];
@@ -1937,39 +2259,12 @@ function renderChatMessages() {
         }
       }
 
-      // Add thinking mode if present (artifact-style)
-      if (entry.thinking) {
-        const wordCount = entry.thinking.split(/\s+/).length;
-        const thinkingSection = document.createElement('div');
-        thinkingSection.className = 'thinking-section';
-        thinkingSection.innerHTML = `
-          <div class="thinking-header" onclick="this.parentElement.classList.toggle('collapsed')">
-            <div class="thinking-header-left">
-              <svg class="thinking-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>
-              </svg>
-              <span class="thinking-label">
-                Thinking Process
-                <span class="thinking-word-count">${wordCount} words</span>
-              </span>
-            </div>
-            <svg class="thinking-toggle" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="6 9 12 15 18 9"/>
-            </svg>
-          </div>
-          <div class="thinking-content">
-            <div class="thinking-text">${escapeHtml(entry.thinking)}</div>
-          </div>
-        `;
-        messageContent.appendChild(thinkingSection);
-      }
-
       contentWrapper.appendChild(messageContent);
 
       // Add message actions
       const messageActions = document.createElement('div');
       messageActions.className = 'message-actions';
-      const assistantText = escapeHtml(entry.assistant);
+      const assistantText = escapeHtml(assistantBody);
       const userText = escapeHtml(entry.user || '');
       messageActions.innerHTML = `
         <button class="action-btn copy-btn" data-copy-text="${assistantText}" title="Copy message">
@@ -2031,7 +2326,79 @@ function renderChatMessages() {
     });
   });
 
-  container.scrollTop = container.scrollHeight;
+  scrollChatToBottom();
+  applySidebarStaggering();
+  renderChatMeta();
+}
+
+function applySidebarStaggering() {
+  const sidebar = document.getElementById('chat-sidebar');
+  if (!sidebar) return;
+  const sequentialItems = sidebar.querySelectorAll('.sidebar-btn-ultra, .session-item-ultra');
+  sequentialItems.forEach((item, index) => {
+    item.classList.add('stagger-item');
+    item.style.setProperty('--stagger-index', index);
+  });
+  if (sequentialItems.length) {
+    sidebar.classList.add('stagger-ready');
+  }
+}
+
+function toggleEmptyHero(show) {
+  const hero = document.getElementById('chat-empty-hero');
+  if (!hero) return;
+  hero.hidden = !show;
+  hero.setAttribute('aria-hidden', show ? 'false' : 'true');
+}
+
+function renderChatMeta() {
+  const sessionTitle = document.getElementById('chat-meta-session');
+  const sessionSubtitle = document.getElementById('chat-meta-subtitle');
+  const modelPill = document.getElementById('meta-model-pill');
+  const presetPill = document.getElementById('meta-preset-pill');
+  const thinkingPill = document.getElementById('meta-thinking-pill');
+  const heroSessionPill = document.getElementById('hero-session-pill');
+
+  const sessionsArray = Array.isArray(state.sessions) ? state.sessions : [];
+  const session = sessionsArray.find((item) => item.id === state.activeSessionId);
+  const sessionName = session?.name || 'Untitled session';
+  const attachments = session?.attachments?.length || 0;
+  const updatedAt = session?.updatedAt ? new Date(session.updatedAt).toLocaleDateString() : null;
+
+  if (sessionTitle) {
+    sessionTitle.textContent = sessionName;
+  }
+
+  if (sessionSubtitle) {
+    if (attachments || updatedAt) {
+      const attachmentCopy = attachments ? `${attachments} attachment${attachments === 1 ? '' : 's'}` : null;
+      const updatedCopy = updatedAt ? `Updated ${updatedAt}` : null;
+      sessionSubtitle.textContent = [attachmentCopy, updatedCopy].filter(Boolean).join(' | ');
+    } else {
+      sessionSubtitle.textContent = 'Use instructions or attachments to tailor this workspace.';
+    }
+  }
+
+  if (modelPill) {
+    modelPill.textContent = state.settings?.model ? `Model: ${state.settings.model}` : 'Model: Select one';
+  }
+
+  if (presetPill) {
+    const presetLabel = getActivePresetLabel();
+    presetPill.textContent = presetLabel ? `Preset: ${presetLabel}` : 'Preset: Custom';
+  }
+
+  if (thinkingPill) {
+    const modeLabel = (state.thinkingMode || 'default').toUpperCase();
+    thinkingPill.textContent = `Thinking: ${modeLabel}`;
+  }
+
+  if (heroSessionPill) {
+    heroSessionPill.textContent = `Session: ${sessionName}`;
+  }
+
+  renderChatPageModelSelector();
+  renderChatPagePresetSelector();
 }
 
 function renderQuickActions() {
@@ -2042,7 +2409,18 @@ function renderQuickActions() {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'quick-action-btn';
-    button.textContent = action.label;
+    button.setAttribute('aria-label', `Insert prompt: ${action.label}`);
+    button.innerHTML = `
+      <span class="qa-icon" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M5 19L19 5M10 5h9v9" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>
+      </span>
+      <span class="qa-copy">
+        <span class="qa-title">${action.label}</span>
+        <span class="qa-subtitle">${action.description || ''}</span>
+      </span>
+    `;
     button.dataset.promptId = action.id;
     button.addEventListener('click', () => {
       const input = document.getElementById('chat-input');
@@ -2050,6 +2428,7 @@ function renderQuickActions() {
       input.value = action.prompt;
       input.focus();
       input.dispatchEvent(new Event('input', { bubbles: true }));
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
     });
     container.appendChild(button);
   });
@@ -2075,8 +2454,9 @@ function renderAiDisclosure() {
   const toggleBtn = document.getElementById('ai-disclosure-toggle');
   const instructionsPreview = document.getElementById('session-instructions-preview');
 
-  const modelName = state.settings?.model || '—';
-  const thinkingCopy = state.thinkingEnabled ? 'Thinking stream on' : 'Thinking stream off';
+  const modelName = state.settings?.model || '--';
+  const thinkingLabel = (state.thinkingMode || 'default').toUpperCase();
+  const thinkingCopy = state.thinkingEnabled ? `Thinking stream on (${thinkingLabel})` : 'Thinking stream off';
   const presetLabel = getActivePresetLabel();
   const presetCopy = presetLabel ? `Preset: ${presetLabel}` : 'Custom instructions';
 
@@ -2105,6 +2485,222 @@ function escapeHtml(value = '') {
     .replace(/'/g, '&#39;');
 }
 
+function scrollChatToBottom() {
+  const container = document.getElementById('chat-history') || document.getElementById('chat-history-ultra');
+  if (!container) return;
+  requestAnimationFrame(() => {
+    container.scrollTop = container.scrollHeight;
+  });
+}
+
+function normalizeTextBlock(value = '') {
+  return String(value || '').trim().replace(/\s+/g, ' ');
+}
+
+const TAGGED_THINKING_PATTERNS = [
+  { regex: /<(think|thinking|reasoning)>([\s\S]*?)<\/\1>/i, captureGroup: 2, strip: true },
+  { regex: /<thought>([\s\S]*?)<\/thought>/i, captureGroup: 1, strip: true },
+  { regex: /\[think(?:ing)?\]([\s\S]*?)\[\/think(?:ing)?\]/i, captureGroup: 1, strip: true },
+  { regex: /<<THINK>>([\s\S]*?)<<\/THINK>>/i, captureGroup: 1, strip: true }
+];
+
+function extractTaggedThinkingPanels(normalized) {
+  for (const pattern of TAGGED_THINKING_PATTERNS) {
+    const match = normalized.match(pattern.regex);
+    if (match) {
+      const captured = (match[pattern.captureGroup] || '').trim();
+      const before = normalized.slice(0, match.index).trim();
+      const after = normalized.slice(match.index + match[0].length).trim();
+      const thinking = captured;
+      return {
+        thinking,
+        response: pattern.strip ? [before, after].filter(Boolean).join('\n').trim() : normalized,
+        hasMarker: Boolean(thinking.length),
+        rawSegment: pattern.strip ? match[0] : ''
+      };
+    }
+  }
+  return null;
+}
+
+function splitThinkingPanels(text = '') {
+  const normalized = (text || '').trim();
+  if (!normalized) {
+    return { thinking: '', response: '', hasMarker: false, rawSegment: '' };
+  }
+
+  const tagged = extractTaggedThinkingPanels(normalized);
+  if (tagged) {
+    return tagged;
+  }
+
+  const heuristic = extractHeuristicThinkingPanels(normalized);
+  if (heuristic) {
+    return heuristic;
+  }
+
+  return { thinking: '', response: normalized, hasMarker: false, rawSegment: '' };
+}
+
+function extractHeuristicThinkingPanels(normalized) {
+  const lower = normalized.toLowerCase();
+  const thinkingMarkers = ['thinking:', 'analysis:', 'reasoning:', 'thought:', 'chain-of-thought:', 'plan:', 'cot:'];
+  let thinkingIdx = -1;
+  let markerLength = 0;
+
+  thinkingMarkers.forEach((marker) => {
+    const idx = lower.indexOf(marker);
+    if (idx !== -1 && (thinkingIdx === -1 || idx < thinkingIdx)) {
+      thinkingIdx = idx;
+      markerLength = marker.length;
+    }
+  });
+
+  if (thinkingIdx === -1) {
+    return null;
+  }
+
+  const prelude = normalized.slice(0, thinkingIdx).trim();
+  const afterMarker = normalized.slice(thinkingIdx + markerLength);
+  const responseMarkers = [
+    'response:',
+    'final answer:',
+    'final response:',
+    'answer:',
+    'assistant:',
+    'output:',
+    'solution:',
+    'final:'
+  ];
+  const afterLower = afterMarker.toLowerCase();
+  let responseIdx = -1;
+  let responseMarkerLength = 0;
+  responseMarkers.forEach((marker) => {
+    const idx = afterLower.indexOf(marker);
+    if (idx !== -1 && (responseIdx === -1 || idx < responseIdx)) {
+      responseIdx = idx;
+      responseMarkerLength = marker.length;
+    }
+  });
+
+  let thinkingBody = '';
+  let responseBody = '';
+  let rawSegment = '';
+
+  if (responseIdx === -1) {
+    const boundaryIdx = afterMarker.search(/\n{2,}/);
+    if (boundaryIdx !== -1) {
+      thinkingBody = afterMarker.slice(0, boundaryIdx).trim();
+      responseBody = afterMarker.slice(boundaryIdx).trim();
+      rawSegment = normalized.slice(thinkingIdx, thinkingIdx + markerLength + boundaryIdx).trim();
+    } else {
+      thinkingBody = afterMarker.trim();
+      rawSegment = normalized.slice(thinkingIdx).trim();
+    }
+  } else {
+    thinkingBody = afterMarker.slice(0, responseIdx).trim();
+    responseBody = afterMarker.slice(responseIdx + responseMarkerLength).trim();
+    rawSegment = normalized.slice(thinkingIdx, thinkingIdx + markerLength + responseIdx).trim();
+  }
+
+  const thinkingText = [prelude, thinkingBody].filter(Boolean).join('\n').trim();
+  if (!thinkingText) {
+    return null;
+  }
+
+  const responseText = responseBody || (responseIdx === -1 ? '' : normalized);
+
+  return {
+    thinking: thinkingText,
+    response: responseText,
+    hasMarker: Boolean(thinkingText.length),
+    rawSegment: rawSegment || thinkingBody
+  };
+}
+
+function generateLocalEntryId(prefix = 'local-entry') {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return `${prefix}-${crypto.randomUUID()}`;
+  }
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function createLocalHistoryEntry({ sessionId, user, assistant, thinking, model, endpoint }) {
+  const cleanedThinking = shouldDiscardClientThinking(thinking) ? '' : (thinking || '').trim();
+  return {
+    id: generateLocalEntryId('history'),
+    timestamp: new Date().toISOString(),
+    sessionId,
+    user: user || '',
+    assistant: assistant || '',
+    thinking: cleanedThinking,
+    model: model || state.settings?.model || 'local',
+    endpoint: endpoint || state.settings?.apiEndpoint || window.location.origin
+  };
+}
+
+function shouldDiscardClientThinking(text = '') {
+  const normalized = normalizeTextBlock(text);
+  if (!normalized) {
+    return true;
+  }
+  const session = (Array.isArray(state.sessions) ? state.sessions : []).find(
+    (item) => item.id === state.activeSessionId
+  );
+  const instructionCandidates = [
+    session?.instructions,
+    state.settings?.systemInstructions,
+    state.settings?.structuredPromptTemplate
+  ]
+    .map(normalizeTextBlock)
+    .filter(Boolean);
+  if (instructionCandidates.some((candidate) => candidate && candidate === normalized)) {
+    return true;
+  }
+  const heuristics = [
+    'please structure your response using xml tags',
+    '<role>',
+    'discovery (what to find/understand)',
+    'work first, ask never'
+  ];
+  const lower = normalized.toLowerCase();
+  return heuristics.some((phrase) => lower.includes(phrase));
+}
+
+function resolveRenderableThinking(primary, fallback) {
+  const candidates = [primary, fallback];
+  for (const candidate of candidates) {
+    const trimmed = (candidate || '').trim();
+    if (trimmed && !shouldDiscardClientThinking(trimmed)) {
+      return trimmed;
+    }
+  }
+  return '';
+}
+
+function synchronizeSessionHistory(sessionId, serverHistory, fallbackEntry) {
+  let history = Array.isArray(serverHistory) ? serverHistory.slice() : [];
+  if (!history.length && fallbackEntry) {
+    console.warn('[history-sync] Server history empty, using local fallback entry');
+    history = [...(state.sessionHistories[sessionId] || []), fallbackEntry].filter(Boolean);
+  }
+  const deduped = [];
+  const seen = new Set();
+  history
+    .filter(Boolean)
+    .forEach((entry) => {
+      const key = entry.id || `${entry.timestamp || ''}-${entry.user || ''}-${entry.assistant || ''}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        deduped.push(entry);
+      }
+    });
+  state.sessionHistories[sessionId] = deduped;
+  state.localHistory[sessionId] = deduped;
+  persistLocalHistory();
+  return deduped;
+}
+
 function clearLiveEntries() {
   document.querySelectorAll('.live-entry').forEach((node) => node.remove());
 }
@@ -2122,7 +2718,7 @@ function appendLiveUserMessage(content) {
     <p><strong>Q:</strong> ${content}</p>
   `;
   container.appendChild(article);
-  container.scrollTop = container.scrollHeight;
+  scrollChatToBottom();
   return article;
 }
 
@@ -2147,7 +2743,10 @@ function appendThinkingMessage() {
         </svg>
       </button>
       <div class="thinking-content">
-        <p><span class="assistant-live-text"></span></p>
+        <div class="thinking-live">
+          <p><span class="assistant-live-text"></span></p>
+        </div>
+        <div class="thinking-text" hidden></div>
       </div>
     </div>
   `;
@@ -2162,38 +2761,37 @@ function appendThinkingMessage() {
   }
 
   container.appendChild(article);
-  container.scrollTop = container.scrollHeight;
+  scrollChatToBottom();
   return article;
 }
 
 function updateThinkingEntry(entry, text) {
   if (!entry) return;
+  const trimmed = (text || '').trim();
+  const allowedText = trimmed && !shouldDiscardClientThinking(trimmed) ? trimmed : '';
   const stream = entry.querySelector('.assistant-live-text');
   if (stream) {
-    stream.textContent = text || '';
+    stream.textContent = allowedText;
   }
 
   // Auto-scroll to show new thinking content
-  const container = document.getElementById('chat-history') || document.getElementById('chat-history-ultra');
-  if (container) {
-    container.scrollTop = container.scrollHeight;
+  if (allowedText) {
+    scrollChatToBottom();
   }
 
   const label = entry.querySelector('.thinking-label');
   if (label) {
-    if (text && text.length > 0) {
-      // Update label to show active thinking with live indicator
-      const wordCount = text.split(/\s+/).filter(w => w.length > 0).length;
+    if (allowedText && allowedText.length > 0) {
+      const wordCount = allowedText.split(/\s+/).filter((w) => w.length > 0).length;
       label.innerHTML = `<span style="display: inline-block; width: 6px; height: 6px; background: #10b981; border-radius: 50%; margin-right: 6px; animation: pulse 1.5s infinite;"></span>Thinking (${wordCount} words)`;
     } else {
       label.innerHTML = `<span style="display: inline-block; width: 6px; height: 6px; background: #10b981; border-radius: 50%; margin-right: 6px; animation: pulse 1.5s infinite;"></span>Thinking...`;
     }
   }
 
-  // Auto-expand the thinking section while streaming
   const thinkingSection = entry.querySelector('.thinking-section');
   const thinkingContent = entry.querySelector('.thinking-content');
-  if (thinkingSection && thinkingContent && text && text.length > 10) {
+  if (thinkingSection && thinkingContent && allowedText && allowedText.length > 10) {
     thinkingSection.classList.remove('collapsed');
     thinkingContent.classList.remove('collapsed');
   }
@@ -2202,28 +2800,11 @@ function updateThinkingEntry(entry, text) {
 function finalizeThinkingEntry(entry, thinkingText, responseText) {
   if (!entry) return;
 
-  // Remove live-entry class so it doesn't get cleared
-  entry.classList.remove('live-entry');
-
-  // Update label to show it's the response
-  const label = entry.querySelector('.thinking-label');
-  if (label) {
-    label.textContent = 'Response';
+  const trimmedThinking = resolveRenderableThinking(thinkingText);
+  if (trimmedThinking) {
+    console.debug('[thinking-entry] Final reasoning captured:', trimmedThinking.length, 'chars');
   }
-
-  // Collapse the thinking section by default after completion
-  const toggleBtn = entry.querySelector('.thinking-toggle-btn');
-  const content = entry.querySelector('.thinking-content');
-  if (toggleBtn && content) {
-    content.classList.add('collapsed');
-    toggleBtn.classList.remove('expanded');
-  }
-
-  // Auto-scroll
-  const container = document.getElementById('chat-history');
-  if (container) {
-    container.scrollTop = container.scrollHeight;
-  }
+  entry.remove();
 }
 
 function attachSettingsHandlers() {
@@ -2704,7 +3285,7 @@ function historyCard(entry) {
 }
 
 function formatDate(value) {
-  if (!value) return '—';
+  if (!value) return '--';
   try {
     return new Date(value).toLocaleString();
   } catch (_) {
@@ -2832,7 +3413,7 @@ async function fetchJson(path, options = {}) {
 
     // Update model status to show it's unavailable
     if (elements.activeModel) {
-      elements.activeModel.textContent = 'model: —';
+      elements.activeModel.textContent = 'model: --';
     }
 
     // Check if it's a network error
@@ -2900,16 +3481,21 @@ Please provide a comprehensive, structured response using the relevant XML tags 
 }
 
 function isStructuredPromptEnabled() {
-  // Check if user wants structured XML responses
-  return state.settings?.enableStructuredPrompts === true; // Default to DISABLED
+  if (!state.settings) {
+    return false;
+  }
+  return state.settings.enableStructuredPrompts === true;
 }
 
-function toggleStructuredPrompts() {
-  state.settings.enableStructuredPrompts = !state.settings.enableStructuredPrompts;
+function toggleStructuredPrompts(forceValue) {
+  if (!state.settings) {
+    state.settings = {};
+  }
+  const nextValue =
+    typeof forceValue === 'boolean' ? forceValue : !isStructuredPromptEnabled();
+  state.settings.enableStructuredPrompts = nextValue;
   persistClientSettings();
-
-  // Show notification
-  const status = state.settings.enableStructuredPrompts ? 'enabled' : 'disabled';
+  const status = nextValue ? 'enabled' : 'disabled';
   showStructuredPromptNotification(status);
 }
 
@@ -3107,7 +3693,7 @@ function initializeStructuredPromptToggle() {
     structuredToggle.checked = isStructuredPromptEnabled();
 
     structuredToggle.addEventListener('change', (event) => {
-      toggleStructuredPrompts();
+      toggleStructuredPrompts(Boolean(event.target.checked));
     });
   }
 }
@@ -3390,6 +3976,8 @@ function restoreClientSettings() {
       state.settings = JSON.parse(raw);
       state.settings.backendBaseUrl = normalizeBaseUrl(state.settings.backendBaseUrl);
       state.baseUrl = state.settings.backendBaseUrl;
+      state.settings.thinkingMode = state.settings.thinkingMode || DEFAULT_THINKING_MODE;
+      state.thinkingMode = state.settings.thinkingMode;
       applyTheme(state.settings.theme);
     }
   } catch (_) {
@@ -3439,12 +4027,11 @@ async function syncDataToCloud() {
   try {
     // Prepare data for sync
     const syncData = {
-      sessions: state.sessions,
       activeSessionId: state.activeSessionId,
       settings: state.settings,
       localHistory: state.localHistory,
-      customPages: state.customPages,
-      thinkingEnabled: state.thinkingEnabled
+      thinkingEnabled: state.thinkingEnabled,
+      thinkingMode: state.thinkingMode
     };
 
     const response = await fetchJson('/api/sync/data', {
@@ -3470,7 +4057,7 @@ async function syncDataToCloud() {
         elements.status.classList.add('badge-offline');
       }
       if (elements.activeModel) {
-        elements.activeModel.textContent = 'model: —';
+        elements.activeModel.textContent = 'model: --';
       }
     }
     return false;
@@ -3524,7 +4111,7 @@ async function syncDataFromCloud() {
         elements.status.classList.add('badge-offline');
       }
       if (elements.activeModel) {
-        elements.activeModel.textContent = 'model: —';
+        elements.activeModel.textContent = 'model: --';
       }
     }
     return false;

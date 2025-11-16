@@ -1,3 +1,45 @@
+function normalizeTextBlock(value = '') {
+  return String(value || '').trim().replace(/\s+/g, ' ');
+}
+
+function shouldDiscardThinkingText(text = '', sessionInstructions = '', globalInstructions = '') {
+  const normalized = normalizeTextBlock(text);
+  if (!normalized) {
+    return true;
+  }
+
+  const candidates = [sessionInstructions, globalInstructions]
+    .map(normalizeTextBlock)
+    .filter(Boolean);
+  if (candidates.some((candidate) => candidate && candidate === normalized)) {
+    return true;
+  }
+
+  const heuristics = [
+    'please structure your response using xml tags',
+    '<role>',
+    'discovery (what to find/understand)',
+    'implementation (what to build)',
+    'testing (how to verify)',
+    'work first, ask never'
+  ];
+  const lower = normalized.toLowerCase();
+  if (heuristics.some((phrase) => lower.includes(phrase))) {
+    return true;
+  }
+
+  return false;
+}
+function normalizeTextBlock(value = '') {
+  return String(value || '').trim().replace(/\s+/g, ' ');
+}
+
+function isSystemInstructionBlock(candidate = '', instructions = '') {
+  if (!candidate || !instructions) {
+    return false;
+  }
+  return normalizeTextBlock(candidate) === normalizeTextBlock(instructions);
+}
 'use strict';
 
 /**
@@ -44,6 +86,10 @@ const OLLAMA_STREAM_TIMEOUT_MS =
 const OLLAMA_UNAVAILABLE_MESSAGE = 'Cannot connect to Ollama service. Is the Ollama service running?';
 const MAX_GENERATE_IMAGES = Number(process.env.MAX_GENERATE_IMAGES || 4);
 const STREAM_HEARTBEAT_INTERVAL_MS = Number(process.env.STREAM_HEARTBEAT_INTERVAL_MS || 15000);
+const MAX_THINKING_CHARACTERS =
+  process.env.MAX_THINKING_CHARACTERS !== undefined && process.env.MAX_THINKING_CHARACTERS !== ''
+    ? Number(process.env.MAX_THINKING_CHARACTERS)
+    : Infinity;
 
 const __dirnameResolved = __dirname || path.resolve();
 const STORAGE_DIR = path.join(__dirnameResolved, 'storage');
@@ -165,6 +211,53 @@ const INSTRUCTION_PRESETS = [
       phases: ['discovery', 'planning', 'implementation', 'verification']
     },
     updatedAt: '2025-01-14T17:30:00Z'
+  },
+  {
+    id: 'deep-research-analyst',
+    label: 'Deep research analyst',
+    description: 'Slower, plan-first workflow for competitive analysis and multi-step reasoning tasks.',
+    instructions: `<role>You are a meticulous research analyst.</role>
+
+<workflow>
+  <phase name="understand">Summarize the request in your own words and list the open questions.</phase>
+  <phase name="plan">Lay out a numbered plan before executing any step.</phase>
+  <phase name="execute">Work through the plan, citing findings as you go.</phase>
+  <phase name="verify">Double-check conclusions and list supporting data.</phase>
+</workflow>
+
+<policies>
+  <policy>Favor truth and sourcing over speed.</policy>
+  <policy>State any assumptions explicitly.</policy>
+  <policy>Never skip verification.</policy>
+</policies>`,
+    version: '1.2',
+    category: 'research',
+    workflow: {
+      requiresDiscovery: true,
+      autoComplete: false,
+      strictXML: true,
+      phases: ['understand', 'plan', 'execute', 'verify']
+    },
+    updatedAt: '2025-01-30T10:00:00Z'
+  },
+  {
+    id: 'rapid-qa-helper',
+    label: 'Rapid QA helper',
+    description: 'Fast, lightweight responses for short answers and sanity checks.',
+    instructions: `<role>You are a concise QA assistant.</role>
+<guidelines>
+  <rule>Keep answers under 6 sentences unless code is requested.</rule>
+  <rule>Highlight edge cases in a short bullet list.</rule>
+  <rule>End with a one-line next step.</rule>
+</guidelines>`,
+    version: '1.0',
+    category: 'support',
+    workflow: {
+      requiresDiscovery: false,
+      autoComplete: true,
+      strictXML: false
+    },
+    updatedAt: '2025-02-02T08:45:00Z'
   }
 ];
 
@@ -395,6 +488,72 @@ async function persistSessions() {
   ensureStorageDir();
   sessionStore.sessions = normalizeSessionCollection(sessionStore.sessions);
   await fsp.writeFile(SESSIONS_FILE, JSON.stringify(sessionStore, null, 2), 'utf8');
+}
+
+async function scrubPersistedHistories() {
+  let mutated = false;
+  Object.values(sessionStore.sessions || {}).forEach((session) => {
+    if (!session || !Array.isArray(session.history) || !session.history.length) {
+      return;
+    }
+    const scrubbed = scrubSessionHistoryEntries(session);
+    if (scrubbed) {
+      mutated = true;
+    }
+  });
+  if (mutated) {
+    try {
+      await persistSessions();
+      console.info('[history-scrub] Cleaned persisted session histories');
+    } catch (error) {
+      console.error('[history-scrub] Unable to persist sanitized histories', error);
+    }
+  }
+}
+
+function scrubSessionHistoryEntries(session) {
+  if (!session || !Array.isArray(session.history)) {
+    return false;
+  }
+  let mutated = false;
+  const cleanedHistory = session.history
+    .map((entry) => {
+      if (!entry) {
+        return null;
+      }
+      const next = { ...entry };
+      const split = safeSplitThinkingSections(next.assistant || '');
+      const sessionInstructions = session.instructions || '';
+      const globalInstructions = runtimeSettings.systemInstructions || '';
+      if (split.hasMarker) {
+        const filteredThinking = shouldDiscardThinkingText(split.thinking, sessionInstructions, globalInstructions)
+          ? ''
+          : split.thinking;
+        const cleanedResponse = split.response || stripThinkingFromText(next.assistant || '', split.thinking, split.rawSegment);
+        if (cleanedResponse && cleanedResponse !== next.assistant) {
+          next.assistant = cleanedResponse;
+          mutated = true;
+        }
+        if (filteredThinking) {
+          if (next.thinking !== filteredThinking) {
+            next.thinking = filteredThinking;
+            mutated = true;
+          }
+        } else if (next.thinking) {
+          delete next.thinking;
+          mutated = true;
+        }
+      } else if (next.thinking && shouldDiscardThinkingText(next.thinking, sessionInstructions, globalInstructions)) {
+        delete next.thinking;
+        mutated = true;
+      }
+      return next;
+    })
+    .filter(Boolean);
+  if (mutated) {
+    session.history = cleanedHistory;
+  }
+  return mutated;
 }
 
 function normalizeBaseUrlInput(url) {
@@ -783,6 +942,186 @@ function buildPrompt(message, systemInstructions, contextMessages = []) {
   return `${systemInstructions}\n\n${contextLines ? `${contextLines}\n` : ''}User: ${message}\nAssistant:`;
 }
 
+const TAGGED_THINKING_PATTERNS = [
+  { regex: /<(think|thinking|reasoning)>([\s\S]*?)<\/\1>/i, captureGroup: 2, strip: true },
+  { regex: /<thought>([\s\S]*?)<\/thought>/i, captureGroup: 1, strip: true },
+  { regex: /\[think(?:ing)?\]([\s\S]*?)\[\/think(?:ing)?\]/i, captureGroup: 1, strip: true },
+  { regex: /<<THINK>>([\s\S]*?)<<\/THINK>>/i, captureGroup: 1, strip: true }
+];
+
+scrubPersistedHistories().catch((error) => {
+  console.error('[history-scrub] Failed to sanitize stored histories', error);
+});
+
+function extractTaggedThinkingBlock(normalized) {
+  for (const pattern of TAGGED_THINKING_PATTERNS) {
+    const match = normalized.match(pattern.regex);
+    if (match) {
+      const captured = (match[pattern.captureGroup] || '').trim();
+      const before = normalized.slice(0, match.index).trim();
+      const after = normalized.slice(match.index + match[0].length).trim();
+      const thinking = captured;
+      if (thinking.length && typeof console.debug === 'function') {
+        console.debug('[splitThinkingSections] Detected tagged thinking block', {
+          tag: match[1] || 'custom'
+        });
+      }
+      return {
+        thinking,
+        response: pattern.strip ? [before, after].filter(Boolean).join('\n').trim() : normalized,
+        hasMarker: Boolean(thinking.length),
+        rawSegment: pattern.strip ? match[0] : ''
+      };
+    }
+  }
+  return null;
+}
+
+function splitThinkingSections(text = '') {
+  const normalized = (text || '').trim();
+  if (!normalized) {
+    return { thinking: '', response: '', hasMarker: false, rawSegment: '' };
+  }
+
+  const tagged = extractTaggedThinkingBlock(normalized);
+  if (tagged) {
+    return tagged;
+  }
+  const heuristic = extractHeuristicThinkingBlock(normalized);
+  if (heuristic) {
+    return heuristic;
+  }
+  return { thinking: '', response: normalized, hasMarker: false, rawSegment: '' };
+}
+
+function safeSplitThinkingSections(text = '') {
+  try {
+    const split = splitThinkingSections(text);
+    return {
+      thinking: split.thinking || '',
+      response: split.response || '',
+      rawSegment: split.rawSegment || '',
+      hasMarker: Boolean(split.hasMarker || (split.thinking && split.thinking.length))
+    };
+  } catch (error) {
+    console.warn('[splitThinkingSections] Failed to parse thinking text', error);
+    return {
+      thinking: '',
+      response: text || '',
+      rawSegment: '',
+      hasMarker: false
+    };
+  }
+}
+
+function extractHeuristicThinkingBlock(normalized) {
+  const lower = normalized.toLowerCase();
+  const thinkingMarkers = ['thinking:', 'analysis:', 'reasoning:', 'thought:', 'chain-of-thought:', 'plan:', 'cot:'];
+  let thinkingIdx = -1;
+  let thinkingMarkerLength = 0;
+
+  thinkingMarkers.forEach((marker) => {
+    const idx = lower.indexOf(marker);
+    if (idx !== -1 && (thinkingIdx === -1 || idx < thinkingIdx)) {
+      thinkingIdx = idx;
+      thinkingMarkerLength = marker.length;
+    }
+  });
+
+  if (thinkingIdx === -1) {
+    return null;
+  }
+
+  const prelude = normalized.slice(0, thinkingIdx).trim();
+  const afterMarker = normalized.slice(thinkingIdx + thinkingMarkerLength);
+
+  const responseMarkers = [
+    'response:',
+    'final answer:',
+    'final response:',
+    'answer:',
+    'assistant:',
+    'output:',
+    'solution:',
+    'final:'
+  ];
+  const afterLower = afterMarker.toLowerCase();
+  let responseIdx = -1;
+  let responseMarkerLength = 0;
+  responseMarkers.forEach((marker) => {
+    const idx = afterLower.indexOf(marker);
+    if (idx !== -1 && (responseIdx === -1 || idx < responseIdx)) {
+      responseIdx = idx;
+      responseMarkerLength = marker.length;
+    }
+  });
+
+  let thinkingBody = '';
+  let responseBody = '';
+  let rawSegment = '';
+
+  if (responseIdx === -1) {
+    const boundaryIdx = afterMarker.search(/\n{2,}/);
+    if (boundaryIdx !== -1) {
+      thinkingBody = afterMarker.slice(0, boundaryIdx).trim();
+      responseBody = afterMarker.slice(boundaryIdx).trim();
+      rawSegment = normalized.slice(thinkingIdx, thinkingIdx + thinkingMarkerLength + boundaryIdx).trim();
+    } else {
+      thinkingBody = afterMarker.trim();
+      rawSegment = normalized.slice(thinkingIdx).trim();
+    }
+  } else {
+    thinkingBody = afterMarker.slice(0, responseIdx).trim();
+    responseBody = afterMarker.slice(responseIdx + responseMarkerLength).trim();
+    rawSegment = normalized.slice(thinkingIdx, thinkingIdx + thinkingMarkerLength + responseIdx).trim();
+  }
+
+  const thinkingText = [prelude, thinkingBody].filter(Boolean).join('\n').trim();
+  if (!thinkingText) {
+    return null;
+  }
+  const responseText = responseBody || (responseIdx === -1 ? '' : normalized);
+
+  return {
+    thinking: thinkingText,
+    response: responseText,
+    hasMarker: Boolean(thinkingText.length),
+    rawSegment: rawSegment || thinkingBody
+  };
+}
+
+function stripThinkingFromText(fullText = '', thinkingText = '', rawSegment = '') {
+  const normalizedFull = (fullText || '').trim();
+  if (!normalizedFull) {
+    return '';
+  }
+
+  const candidates = [rawSegment, thinkingText]
+    .map((item) => (item || '').trim())
+    .filter(Boolean);
+
+  for (const candidate of candidates) {
+    const lowerFull = normalizedFull.toLowerCase();
+    const lowerCandidate = candidate.toLowerCase();
+    const idx = lowerFull.indexOf(lowerCandidate);
+    if (idx !== -1) {
+      const before = normalizedFull.slice(0, idx).trim();
+      const after = normalizedFull.slice(idx + candidate.length).trim();
+      return [before, after].filter(Boolean).join('\n').trim();
+    }
+  }
+
+  return normalizedFull;
+}
+
+function addThinkingPreference(instructions, mode) {
+  const normalizedMode = (mode || 'default').toLowerCase();
+  if (normalizedMode === 'max') {
+    return `${instructions}\n\n[Thinking Preference: MAX]\n- Spend ample time reasoning before final answers.\n- Surface intermediate thoughts in the thinking block so users can follow the plan.\n- Only deliver the final response after reasoning is complete.`;
+  }
+  return instructions;
+}
+
 function captureProcessOutput(child) {
   let stdout = '';
   let stderr = '';
@@ -871,7 +1210,17 @@ function runOllama({ prompt, model, apiEndpoint, timeoutMs = 120000 }) {
 }
 
 app.post('/api/chat', async (req, res) => {
-  const { message, enhancedMessage, useEnhanced, model, instructions, apiEndpoint, includeHistory, sessionId } = req.body || {};
+  const {
+    message,
+    enhancedMessage,
+    useEnhanced,
+    model,
+    instructions,
+    apiEndpoint,
+    includeHistory,
+    sessionId,
+    thinkingEnabled
+  } = req.body || {};
   const messageForAI = (useEnhanced && enhancedMessage) ? enhancedMessage : message;
   const messageForHistory = message;
 
@@ -904,7 +1253,9 @@ app.post('/api/chat', async (req, res) => {
   const attachmentContext = [...session.attachments, ...ephemeralAttachments]
     .map((att) => `Attachment (${att.name || att.id}):\n${att.content}`)
     .join('\n\n');
-  const combinedInstructions = [systemPrompt, attachmentContext].filter(Boolean).join('\n\n');
+  const thinkingMode = (req.body?.thinkingMode || 'default').toLowerCase();
+  const augmentedSystemPrompt = addThinkingPreference(systemPrompt, thinkingMode);
+  const combinedInstructions = [augmentedSystemPrompt, attachmentContext].filter(Boolean).join('\n\n');
 
   const contextLimit =
     includeHistory === false
@@ -916,7 +1267,9 @@ app.post('/api/chat', async (req, res) => {
       : session.history.slice(-1 * contextLimit);
 
   const prompt = buildPrompt(messageForAI, combinedInstructions, contextSlice);
+  const thinkingText = '';
   const startedAt = Date.now();
+  let latestSplit = { thinking: thinkingText || '', response: '', hasMarker: Boolean((thinkingText || '').length) };
 
   try {
     const endpoint = withTrailingSlash(endpointToUse);
@@ -953,17 +1306,24 @@ app.post('/api/chat', async (req, res) => {
     }
 
     const responseText = result.response;
+    latestSplit = safeSplitThinkingSections(responseText);
+    const cleanedResponse = latestSplit.response || stripThinkingFromText(responseText, latestSplit.thinking, latestSplit.rawSegment);
+    let derivedThinking = latestSplit.hasMarker ? latestSplit.thinking : '';
+    if (shouldDiscardThinkingText(derivedThinking, session.instructions, systemPrompt)) {
+      derivedThinking = '';
+    }
 
     const entry = {
       id: crypto.randomUUID(),
       timestamp: new Date().toISOString(),
       user: messageForHistory, // Original message for display
-      assistant: responseText,
+      assistant: cleanedResponse,
       model: modelToUse,
       endpoint: endpointToUse,
       sessionId: session.id,
       presetId: session.presetId || null,
-      instructions: systemPrompt ? systemPrompt.slice(0, 200) : null
+      instructions: systemPrompt ? systemPrompt.slice(0, 200) : null,
+      thinking: derivedThinking
     };
 
     await pushHistory(session.id, entry);
@@ -973,8 +1333,8 @@ app.post('/api/chat', async (req, res) => {
     }
 
     return res.json({
-      thinking: false,
-      response: responseText,
+      thinking: derivedThinking,
+      response: cleanedResponse,
       history: ensureSession(session.id).history,
       durationMs: Date.now() - startedAt,
       sessionId: session.id
@@ -985,7 +1345,7 @@ app.post('/api/chat', async (req, res) => {
       ? OLLAMA_UNAVAILABLE_MESSAGE
       : error.message || 'Failed to reach Ollama';
     return res.status(500).json({
-      thinking: false,
+      thinking: latestSplit?.thinking || thinkingText || '',
       error: errorMessage,
       history: ensureSession(session.id).history,
       sessionId: session.id
@@ -1143,7 +1503,17 @@ app.post('/api/generate', async (req, res) => {
 });
 
 app.post('/api/chat/stream', async (req, res) => {
-  const { message, enhancedMessage, useEnhanced, model, instructions, apiEndpoint, includeHistory, sessionId } = req.body || {};
+  const {
+    message,
+    enhancedMessage,
+    useEnhanced,
+    model,
+    instructions,
+    apiEndpoint,
+    includeHistory,
+    sessionId,
+    thinkingEnabled
+  } = req.body || {};
   const messageForAI = (useEnhanced && enhancedMessage) ? enhancedMessage : message;
   const messageForHistory = message;
 
@@ -1166,7 +1536,7 @@ app.post('/api/chat/stream', async (req, res) => {
   const attachmentContext = session.attachments
     .map((att) => `Attachment (${att.name || att.id}):\n${att.content}`)
     .join('\n\n');
-  const combinedInstructions = [systemPrompt, attachmentContext].filter(Boolean).join('\n\n');
+  const thinkingMode = (req.body?.thinkingMode || 'default').toLowerCase();
   const contextLimit =
     includeHistory === false
       ? 0
@@ -1176,7 +1546,10 @@ app.post('/api/chat/stream', async (req, res) => {
       ? []
       : session.history.slice(-1 * contextLimit);
 
+  const augmentedSystemPrompt = addThinkingPreference(systemPrompt, thinkingMode);
+  const combinedInstructions = [augmentedSystemPrompt, attachmentContext].filter(Boolean).join('\n\n');
   const prompt = buildPrompt(messageForAI, combinedInstructions, contextSlice);
+  const thinkingText = '';
   const startedAt = Date.now();
 
   res.writeHead(200, {
@@ -1192,6 +1565,7 @@ app.post('/api/chat/stream', async (req, res) => {
   let stopHeartbeat = () => {};
   let releaseStreamingGuards = () => {};
 
+  let latestSplit = safeSplitThinkingSections(thinkingText || '');
   try {
     releaseStreamingGuards = applyStreamingGuards(req, res, 'chat-stream');
     stopHeartbeat = startSseHeartbeat(res, 'chat-stream', {
@@ -1242,7 +1616,9 @@ app.post('/api/chat/stream', async (req, res) => {
       }
       if (parsed.response) {
         aggregate += parsed.response;
-        res.write(`data: ${JSON.stringify({ token: parsed.response })}\n\n`);
+        latestSplit = safeSplitThinkingSections(aggregate);
+        const thinkingPreview = latestSplit.hasMarker ? latestSplit.thinking : '';
+        res.write(`data: ${JSON.stringify({ token: parsed.response, thinking: thinkingPreview })}\n\n`);
         res.flush?.();
       }
       if (parsed.error) {
@@ -1276,16 +1652,23 @@ app.post('/api/chat/stream', async (req, res) => {
       throw new Error('Stream ended unexpectedly');
     }
 
+    const cleanedResponse = latestSplit.response || stripThinkingFromText(aggregate, latestSplit.thinking, latestSplit.rawSegment);
+    let derivedThinking = latestSplit.hasMarker ? latestSplit.thinking : '';
+    if (shouldDiscardThinkingText(derivedThinking, session.instructions, systemPrompt)) {
+      derivedThinking = '';
+    }
+
     const entry = {
       id: crypto.randomUUID(),
       timestamp: new Date().toISOString(),
       user: messageForHistory, // Original message
-      assistant: aggregate,
+      assistant: cleanedResponse,
       model: modelToUse,
       endpoint: endpointToUse,
       sessionId: session.id,
       presetId: session.presetId || null,
-      instructions: combinedInstructions ? combinedInstructions.slice(0, 200) : null
+      instructions: combinedInstructions ? combinedInstructions.slice(0, 200) : null,
+      thinking: derivedThinking
     };
 
     await pushHistory(session.id, entry);
@@ -1293,9 +1676,10 @@ app.post('/api/chat/stream', async (req, res) => {
     res.write(
       `data: ${JSON.stringify({
         done: true,
-        response: aggregate,
+        response: cleanedResponse,
         history: ensureSession(session.id).history,
-        durationMs: Date.now() - startedAt
+        durationMs: Date.now() - startedAt,
+        thinking: derivedThinking
       })}\n\n`
     );
     res.end();
@@ -1307,7 +1691,7 @@ app.post('/api/chat/stream', async (req, res) => {
     const errorMessage = error.message.includes('ECONNREFUSED') || error.message.includes('connect ETIMEDOUT')
       ? OLLAMA_UNAVAILABLE_MESSAGE
       : error.message || 'Failed to stream response';
-    res.write(`data: ${JSON.stringify({ error: errorMessage })}\n\n`);
+    res.write(`data: ${JSON.stringify({ error: errorMessage, thinking: latestSplit?.thinking || thinkingText || '' })}\n\n`);
     res.end();
   } finally {
     stopHeartbeat?.();
@@ -1602,7 +1986,20 @@ app.post('/api/sync/data', async (req, res) => {
   try {
     // Update the in-memory stores with the synced data
     if (sessions) {
-      sessionStore.sessions = normalizeSessionCollection(sessions);
+      const normalizedIncoming = normalizeSessionCollection(sessions);
+      Object.entries(normalizedIncoming).forEach(([id, incoming]) => {
+        const existing = ensureSession(id);
+        const mergedHistory =
+          Array.isArray(incoming.history) && incoming.history.length
+            ? incoming.history
+            : existing.history;
+        sessionStore.sessions[id] = {
+          ...existing,
+          ...incoming,
+          history: mergedHistory,
+          updatedAt: incoming.updatedAt || existing.updatedAt
+        };
+      });
     }
     if (activeSessionId) {
       sessionStore.activeSessionId = activeSessionId;

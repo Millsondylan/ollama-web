@@ -19,52 +19,68 @@
       </button>
     </div>
 
-    <!-- Sessions List (Simplified) -->
-    <div class="sessions-ultra">
-      <div id="sessions-today" class="session-group-ultra">
-        <div class="session-group-title-ultra">Today</div>
-        <div class="session-list-ultra"></div>
+    <section class="sidebar-section-ultra">
+      <p class="sidebar-section-label">Sessions</p>
+      <div class="sessions-ultra">
+        <div id="sessions-today" class="session-group-ultra">
+          <div class="session-group-title-ultra">Today</div>
+          <div class="session-list-ultra"></div>
+        </div>
+        <div id="sessions-yesterday" class="session-group-ultra">
+          <div class="session-group-title-ultra">Yesterday</div>
+          <div class="session-list-ultra"></div>
+        </div>
+        <div id="sessions-week" class="session-group-ultra">
+          <div class="session-group-title-ultra">Previous 7 Days</div>
+          <div class="session-list-ultra"></div>
+        </div>
+        <div id="sessions-older" class="session-group-ultra">
+          <div class="session-group-title-ultra">Previous 30 Days</div>
+          <div class="session-list-ultra"></div>
+        </div>
       </div>
-      <div id="sessions-yesterday" class="session-group-ultra">
-        <div class="session-group-title-ultra">Yesterday</div>
-        <div class="session-list-ultra"></div>
+    </section>
+
+    <section class="sidebar-section-ultra">
+      <p class="sidebar-section-label">Workspace</p>
+      <div class="sidebar-button-stack">
+        <button id="settings-btn-ultra" class="sidebar-btn-ultra">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v10M12 1A11 11 0 0 0 1 12h6m6 0H1M12 1a11 11 0 0 1 11 11h-6m0 0H1"/>
+          </svg>
+          <span>Settings</span>
+        </button>
       </div>
-      <div id="sessions-week" class="session-group-ultra">
-        <div class="session-group-title-ultra">Previous 7 Days</div>
-        <div class="session-list-ultra"></div>
+    </section>
+
+    <section class="sidebar-section-ultra">
+      <p class="sidebar-section-label">Navigation</p>
+      <div class="sidebar-button-stack">
+        <button id="nav-sessions-ultra" class="sidebar-btn-ultra">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+          <span>Sessions</span>
+        </button>
+
+        <button id="nav-history-ultra" class="sidebar-btn-ultra">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/>
+          </svg>
+          <span>History</span>
+        </button>
+
+        <button id="nav-api-ultra" class="sidebar-btn-ultra">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+          </svg>
+          <span>API</span>
+        </button>
       </div>
-      <div id="sessions-older" class="session-group-ultra">
-        <div class="session-group-title-ultra">Previous 30 Days</div>
-        <div class="session-list-ultra"></div>
-      </div>
-    </div>
+    </section>
 
-    <!-- Bottom: Navigation + Settings -->
-    <div class="sidebar-footer-ultra">
-      <!-- Settings Button (opens modal with all controls) -->
-      <button id="settings-btn-ultra" class="sidebar-btn-ultra">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v10M12 1A11 11 0 0 0 1 12h6m6 0H1M12 1a11 11 0 0 1 11 11h-6m0 0H1"/>
-        </svg>
-        <span>Settings</span>
-      </button>
-
-      <!-- Navigation Links -->
-      <button id="nav-sessions-ultra" class="sidebar-btn-ultra">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-        </svg>
-        <span>Sessions</span>
-      </button>
-
-      <button id="nav-history-ultra" class="sidebar-btn-ultra">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/>
-        </svg>
-        <span>History</span>
-      </button>
-
-      <!-- Theme Toggle -->
+    <section class="sidebar-section-ultra">
+      <p class="sidebar-section-label">Theme</p>
       <button id="theme-toggle" class="sidebar-btn-ultra">
         <svg class="theme-icon-light" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
@@ -75,7 +91,7 @@
         <span class="theme-label-light">Dark mode</span>
         <span class="theme-label-dark" style="display: none;">Light mode</span>
       </button>
-    </div>
+    </section>
 
     <!-- Hidden elements for compatibility -->
     <div style="display: none;">
@@ -225,7 +241,7 @@
         <div class="setting-group-ultra">
           <div class="setting-label-ultra">Active Model</div>
           <div id="active-model-display" class="model-display-ultra">
-            <span id="active-model">—</span>
+                    <span id="active-model">--</span>
           </div>
         </div>
       </div>
