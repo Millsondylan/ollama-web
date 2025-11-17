@@ -12,7 +12,7 @@
     <meta http-equiv="Expires" content="0" />
     <link rel="manifest" href="/manifest.json" />
     <title>Ollama Web Console</title>
-    <link rel="stylesheet" href="/styles.css?bust=1737059999" />
+    <link rel="stylesheet" href="/styles.css?bust=1763357008" />
     <style>
       /* INLINE CRITICAL STYLES - CACHE PROOF */
       .composer-input-wrapper-ultra {
@@ -44,6 +44,53 @@
       }
       .message-avatar.user {
         background: linear-gradient(135deg, #0084ff 0%, #0066cc 100%) !important;
+      }
+
+      /* SIDEBAR TEXT VISIBILITY FIX - NUCLEAR OPTION */
+      /* Force dark text on ALL sidebar elements in light mode */
+      body:not([data-theme='dark']) .sidebar-ultra,
+      body:not([data-theme='dark']) .sidebar-ultra *,
+      body:not([data-theme='dark']) .sidebar-section-ultra,
+      body:not([data-theme='dark']) .sidebar-section-ultra *,
+      body:not([data-theme='dark']) .sidebar-btn-ultra,
+      body:not([data-theme='dark']) .sidebar-btn-ultra *,
+      body:not([data-theme='dark']) .sidebar-btn-ultra span,
+      body:not([data-theme='dark']) .sidebar-btn-highlight,
+      body:not([data-theme='dark']) .sidebar-btn-highlight *,
+      body:not([data-theme='dark']) .sidebar-btn-secondary,
+      body:not([data-theme='dark']) .sidebar-btn-secondary *,
+      body:not([data-theme='dark']) .sidebar-button-stack,
+      body:not([data-theme='dark']) .sidebar-button-stack *,
+      body:not([data-theme='dark']) .session-group-title-ultra,
+      body:not([data-theme='dark']) .logo-ultra {
+        color: #0f172a !important;
+      }
+
+      /* Force SVG stroke colors */
+      body:not([data-theme='dark']) .sidebar-btn-ultra svg,
+      body:not([data-theme='dark']) .sidebar-btn-ultra svg *,
+      body:not([data-theme='dark']) .sidebar-btn-highlight svg,
+      body:not([data-theme='dark']) .sidebar-btn-highlight svg *,
+      body:not([data-theme='dark']) .sidebar-btn-secondary svg,
+      body:not([data-theme='dark']) .sidebar-btn-secondary svg * {
+        stroke: #0f172a !important;
+        fill: none !important;
+      }
+
+      /* Ensure buttons remain visible on hover */
+      body:not([data-theme='dark']) .sidebar-btn-ultra:hover,
+      body:not([data-theme='dark']) .sidebar-btn-ultra:hover *,
+      body:not([data-theme='dark']) .sidebar-btn-highlight:hover,
+      body:not([data-theme='dark']) .sidebar-btn-highlight:hover *,
+      body:not([data-theme='dark']) .sidebar-btn-secondary:hover,
+      body:not([data-theme='dark']) .sidebar-btn-secondary:hover * {
+        color: #0066cc !important;
+      }
+
+      /* Session items text visibility */
+      body:not([data-theme='dark']) .session-item-ultra,
+      body:not([data-theme='dark']) .session-item-ultra * {
+        color: #0f172a !important;
       }
     </style>
   </head>
@@ -104,56 +151,60 @@
       </div>
     </section>
 
-    <section class="sidebar-section-ultra">
-      <p class="sidebar-section-label">Workspace</p>
+    <!-- QUICK ACCESS PANEL -->
+    <section class="sidebar-section-ultra sidebar-section-primary">
       <div class="sidebar-button-stack">
-        <button id="settings-btn-ultra" class="sidebar-btn-ultra">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v10M12 1A11 11 0 0 0 1 12h6m6 0H1M12 1a11 11 0 0 1 11 11h-6m0 0H1"/>
+        <button id="nav-models-ultra" class="sidebar-btn-ultra sidebar-btn-highlight">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
           </svg>
-          <span>Settings</span>
-        </button>
-      </div>
-    </section>
-
-    <section class="sidebar-section-ultra">
-      <p class="sidebar-section-label">Navigation</p>
-      <div class="sidebar-button-stack">
-        <button id="nav-sessions-ultra" class="sidebar-btn-ultra">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-          </svg>
-          <span>Sessions</span>
+          <span>Models</span>
         </button>
 
-        <button id="nav-history-ultra" class="sidebar-btn-ultra">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <button id="nav-prompts-ultra" class="sidebar-btn-ultra sidebar-btn-highlight">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/>
+          </svg>
+          <span>Prompts</span>
+        </button>
+
+        <button id="nav-history-ultra" class="sidebar-btn-ultra sidebar-btn-highlight">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
             <circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/>
           </svg>
           <span>History</span>
         </button>
-
-        <button id="nav-api-ultra" class="sidebar-btn-ultra">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-          </svg>
-          <span>API</span>
-        </button>
       </div>
     </section>
 
-    <section class="sidebar-section-ultra">
-      <p class="sidebar-section-label">Theme</p>
-      <button id="theme-toggle" class="sidebar-btn-ultra">
-        <svg class="theme-icon-light" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
-        </svg>
-        <svg class="theme-icon-dark" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: none;">
-          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-        </svg>
-        <span class="theme-label-light">Dark mode</span>
-        <span class="theme-label-dark" style="display: none;">Light mode</span>
-      </button>
+    <!-- QUICK SETTINGS -->
+    <section class="sidebar-section-ultra sidebar-section-compact">
+      <div class="sidebar-button-stack">
+        <button id="nav-options-ultra" class="sidebar-btn-ultra sidebar-btn-secondary">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v10"/>
+          </svg>
+          <span>Quick Options</span>
+        </button>
+
+        <button id="nav-settings-ultra" class="sidebar-btn-ultra sidebar-btn-secondary">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>
+          </svg>
+          <span>Full Settings</span>
+        </button>
+
+        <button id="theme-toggle" class="sidebar-btn-ultra sidebar-btn-secondary">
+          <svg class="theme-icon-light" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+          </svg>
+          <svg class="theme-icon-dark" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: none;">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+          </svg>
+          <span class="theme-label-light">Dark Mode</span>
+          <span class="theme-label-dark" style="display: none;">Light Mode</span>
+        </button>
+      </div>
     </section>
 
     <!-- Hidden elements for compatibility -->
@@ -253,6 +304,11 @@
     <!-- Modern Floating Composer -->
     <div class="composer-ultra">
       <div class="composer-container-ultra">
+        <!-- Image Preview Area -->
+        <div id="image-preview-container" class="image-preview-container" style="display: none;">
+          <div id="image-preview-list" class="image-preview-list"></div>
+        </div>
+
         <div class="composer-input-wrapper-ultra">
           <textarea
             id="chat-input"
@@ -262,18 +318,40 @@
             rows="1"
           ></textarea>
 
-          <button id="send-btn" class="send-btn-ultra" aria-label="Send message" disabled>
-            <svg class="send-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
-            </svg>
-            <div class="loading-spinner" style="display: none;">
-              <div class="spinner-ring"></div>
-            </div>
-          </button>
+          <div class="composer-actions">
+            <!-- Hidden file input -->
+            <input
+              type="file"
+              id="image-upload-input"
+              accept="image/*"
+              multiple
+              style="display: none;"
+              aria-label="Upload images"
+            />
+
+            <!-- Image upload button -->
+            <button id="image-upload-btn" class="composer-action-btn" aria-label="Attach images" title="Upload images">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                <circle cx="8.5" cy="8.5" r="1.5"/>
+                <polyline points="21 15 16 10 5 21"/>
+              </svg>
+            </button>
+
+            <button id="send-btn" class="send-btn-ultra" aria-label="Send message" disabled>
+              <svg class="send-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+              </svg>
+              <div class="loading-spinner" style="display: none;">
+                <div class="spinner-ring"></div>
+              </div>
+            </button>
+          </div>
         </div>
 
         <div class="composer-footer-ultra">
           <span id="char-counter" class="char-count-ultra">0 characters</span>
+          <span id="image-counter" class="image-count-ultra" style="display: none;">0 images</span>
         </div>
       </div>
     </div>
@@ -304,6 +382,107 @@
       <div id="header-progress"></div>
     </div>
   </main>
+
+  <!-- Side Panel Container (Right-side overlay panels) -->
+  <aside id="side-panel-container" class="side-panel-container">
+    <div class="side-panel-backdrop"></div>
+
+    <!-- Prompts Panel -->
+    <div id="prompts-panel" class="side-panel" data-panel="prompts">
+      <div class="side-panel-header">
+        <h2>Saved Prompts</h2>
+        <button class="side-panel-close" aria-label="Close panel">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="side-panel-content">
+        <div class="side-panel-search">
+          <input type="text" id="prompts-search" placeholder="Search prompts..." />
+        </div>
+        <div id="prompts-list" class="side-panel-list">
+          <p class="side-panel-empty">No saved prompts yet.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Models Panel -->
+    <div id="models-panel" class="side-panel" data-panel="models">
+      <div class="side-panel-header">
+        <h2>Available Models</h2>
+        <button class="side-panel-close" aria-label="Close panel">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="side-panel-content">
+        <div id="models-list" class="side-panel-list">
+          <p class="side-panel-loading">Loading models...</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- History Panel -->
+    <div id="history-panel" class="side-panel" data-panel="history">
+      <div class="side-panel-header">
+        <h2>Chat History</h2>
+        <button class="side-panel-close" aria-label="Close panel">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="side-panel-content">
+        <div id="history-list" class="side-panel-list">
+          <p class="side-panel-loading">Loading history...</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Options Panel -->
+    <div id="options-panel" class="side-panel" data-panel="options">
+      <div class="side-panel-header">
+        <h2>Quick Options</h2>
+        <button class="side-panel-close" aria-label="Close panel">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="side-panel-content">
+        <div class="side-panel-options">
+          <div class="option-group">
+            <h3>Display</h3>
+            <label class="option-toggle">
+              <span>Show thinking process</span>
+              <input type="checkbox" id="option-show-thinking" checked />
+              <div class="toggle-switch"></div>
+            </label>
+            <label class="option-toggle">
+              <span>Compact mode</span>
+              <input type="checkbox" id="option-compact-mode" />
+              <div class="toggle-switch"></div>
+            </label>
+          </div>
+          <div class="option-group">
+            <h3>Behavior</h3>
+            <label class="option-toggle">
+              <span>Auto-scroll</span>
+              <input type="checkbox" id="option-auto-scroll" checked />
+              <div class="toggle-switch"></div>
+            </label>
+            <label class="option-toggle">
+              <span>Sound notifications</span>
+              <input type="checkbox" id="option-sound" />
+              <div class="toggle-switch"></div>
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </aside>
 
   <!-- Settings Modal (Hidden by default) -->
   <div id="settings-modal-ultra" class="modal-ultra" style="display: none;">
@@ -341,8 +520,8 @@
           <div class="setting-group-ultra">
             <label class="setting-toggle-ultra">
               <div>
-                <div class="setting-label-ultra">Parse XML Structures</div>
-                <div class="setting-description-ultra">Extract and display XML-tagged content from responses</div>
+                <div class="setting-label-ultra">Enforce XML golden schema</div>
+                <div class="setting-description-ultra">Require responses to follow the &lt;response&gt; template (role → discovery → web research → execution → verification)</div>
               </div>
               <input type="checkbox" id="structured-prompt-toggle" class="toggle-checkbox-ultra" />
               <div class="toggle-switch-ultra"></div>
@@ -677,7 +856,7 @@
       </div>
     </template>
 
-    <script src="/app.js?bust=1737059999" type="module"></script>
+    <script src="/app.js?bust=1763357008" type="module"></script>
     <script>
       // DISABLE SERVICE WORKER COMPLETELY
       console.log('[CACHE] Service worker DISABLED - using fresh files');

@@ -137,6 +137,36 @@ You can also:
 
 Be helpful and clear. Ask clarifying questions when the task is vague.`;
 
+const GOLDEN_RESPONSE_TEMPLATE = `<response>
+  <role>...</role>
+  <context>...</context>
+  <goal>...</goal>
+  <objectives>
+    <item>...</item>
+  </objectives>
+  <discovery>
+    <step>...</step>
+  </discovery>
+  <research>
+    <webQuery>...</webQuery>
+    <source>...</source>
+    <insight>...</insight>
+  </research>
+  <execution>
+    <step>...</step>
+  </execution>
+  <verification>
+    <check>...</check>
+  </verification>
+  <reporting>
+    <summary>...</summary>
+    <deliverables>
+      <item>...</item>
+    </deliverables>
+  </reporting>
+  <notes>...</notes>
+</response>`;
+
 const DEFAULT_SETTINGS = {
   model: DEFAULT_MODEL,
   apiEndpoint: DEFAULT_ENDPOINT,
@@ -148,52 +178,30 @@ const DEFAULT_SETTINGS = {
   ollamaApiKey: OLLAMA_API_KEY
 };
 
-const AI_CODER_PROMPT_PRESET = `You are a prompt engineer. Your job is to transform user requests into PERFECT PROMPTS for autonomous AI coders (Claude, ChatGPT, etc).
+const AI_CODER_PROMPT_PRESET = `You are a prompt engineer for autonomous AI coders. Convert every user request into a COMPLETE XML prompt that the coder can execute without follow-up.
 
-When a user describes a coding task, OUTPUT a prompt they can copy-paste directly to an AI coder.
+Non-negotiable rules:
+1. Never ask the user for permission or next steps. Assume full ownership.
+2. Always include discovery instructions BEFORE any coding work.
+3. After discovery, include a dedicated web research plan that lists search terms, target sources, and how to capture insights.
+4. Only after discovery + research do you describe execution steps and deliverables.
+5. Verification is mandatory (tests, QA, or validation steps aligned with the request).
+6. Close with reporting instructions so the coder summarizes what shipped.
 
-PROMPT STRUCTURE:
-1. Clear task statement
-2. DISCOVERY section (what to search for)
-3. IMPLEMENTATION section (what to build)
-4. TESTING section (how to verify)
-5. MANDATORY RULES for the AI coder (work first, ask never, complete it, test it, report it)
+Use the XML golden schema verbatim:
 
-DO NOT output analysis, explanations, or meta-commentary.
-OUTPUT ONLY the final prompt - ready to copy-paste.
+${GOLDEN_RESPONSE_TEMPLATE}
 
-EXAMPLE:
-User says: "Add user login to the app"
-You output:
----
-Implement user login functionality for the application.
+Implementation notes:
+- Populate every tag with concrete content tailored to the request.
+- <discovery> must mention repo scanning / file audits that unblock the work.
+- <research> must include actionable web queries, APIs, docs, or blog posts to consult.
+- <execution> must reference outputs that rely on the research findings.
+- <verification> must describe how to prove the work (tests, linters, manual checks, curl commands, etc.).
+- <reporting> tells the coder how to summarize results and note follow-ups.
+- <notes> is for constraints, performance targets, or reminders (no fluff).
 
-DISCOVERY (do this first):
-1. Find all authentication-related files
-2. Check for existing user models
-3. Review current middleware
-
-IMPLEMENTATION (do this second):
-1. Create user model with password hashing
-2. Build login endpoint with validation
-3. Add session/JWT token generation
-4. Create password verification logic
-
-TESTING (do this third):
-1. Test login with valid credentials
-2. Test login with invalid credentials
-3. Test session expiration
-4. Verify no SQL injection
-
-MANDATORY RULES:
-- Do not explain before implementing
-- Do not ask for confirmation
-- Complete the entire feature end-to-end
-- Test immediately after implementing
-- Report what was done when finished
----
-
-Remember: User asks → You generate prompt → User copies → They paste to real AI coder`;
+Return ONLY the XML document.`;
 
 
 const INSTRUCTION_PRESETS = [
@@ -214,17 +222,17 @@ const INSTRUCTION_PRESETS = [
   {
     id: 'ai-coder-prompt',
     label: 'AI coder prompt concierge',
-    description: 'Outputs clean prompts (NO XML). Workflow: DISCOVERY → RESEARCH → IMPLEMENTATION → VERIFICATION.',
+    description: 'Outputs XML golden prompts with enforced discovery → web research → execution → verification → reporting flow.',
     instructions: AI_CODER_PROMPT_PRESET,
-    version: '2.3',
+    version: '3.0',
     category: 'coding',
     workflow: {
       requiresDiscovery: true,
       autoComplete: true,
-      strictXML: false,
-      phases: ['discovery', 'planning', 'implementation', 'verification']
+      strictXML: true,
+      phases: ['discovery', 'research', 'execution', 'verification', 'reporting']
     },
-    updatedAt: '2025-01-14T17:30:00Z'
+    updatedAt: '2025-11-16T00:00:00Z'
   },
   {
     id: 'deep-research-analyst',

@@ -64,6 +64,8 @@ const QUICK_ACTIONS = [
   }
 ];
 
+const initialThinkingPreference = loadThinkingPreference();
+
 const state = {
   currentPage: 'chat',
   chat: [],
@@ -80,10 +82,12 @@ const state = {
   apiKeys: [],
   lastGeneratedSecret: null,
   availableModels: [],
-  thinkingEnabled: loadThinkingPreference(),
+  thinkingEnabled: initialThinkingPreference,
   thinkingMode: DEFAULT_THINKING_MODE,
   instructionPresets: loadInstructionPresets()
 };
+
+persistThinkingPreference(state.thinkingEnabled);
 
 let instructionPresetControlRegistry = [];
 let presetRefreshPromise = null;
@@ -147,9 +151,8 @@ async function bootstrapSettings() {
     persistInstructionPresets(state.instructionPresets);
     refreshInstructionPresetControls();
     const normalizedBase = normalizeBaseUrl(data.current?.backendBaseUrl);
-    // Preserve client-side settings like aiCoderEnabled
+    // Preserve client-side settings stored locally
     const preservedSettings = {
-      aiCoderEnabled: state.settings?.aiCoderEnabled !== false,
       enableStructuredPrompts: state.settings?.enableStructuredPrompts === true
     };
     state.settings = {
@@ -194,13 +197,10 @@ async function bootstrapSettings() {
     }
     refreshInstructionPresetControls();
     state.baseUrl = normalizeBaseUrl(state.settings?.backendBaseUrl);
-    // Preserve aiCoderEnabled during error recovery
-    const aiCoderSetting = state.settings?.aiCoderEnabled;
     const structuredSetting = state.settings?.enableStructuredPrompts;
     state.settings = {
       ...(state.settings || {}),
       backendBaseUrl: state.baseUrl,
-      aiCoderEnabled: aiCoderSetting !== false,
       enableStructuredPrompts: structuredSetting === true
     };
     notifySettingsSubscribers();
@@ -684,7 +684,6 @@ function attachChatHandlers() {
   initializeStructuredPromptToggle();
   const instructionsPreview = document.getElementById('session-instructions-preview');
   const modelSelector = document.getElementById('model-selector');
-  const thinkingToggle = document.getElementById('thinking-toggle');
   const newChatBtn = document.getElementById('new-chat-btn');
   const sidebarToggle = document.getElementById('sidebar-toggle');
   const sidebarToggleMobile = document.getElementById('sidebar-toggle-mobile');
@@ -715,35 +714,6 @@ function attachChatHandlers() {
     });
   }
 
-  // Thinking is now always enabled - no toggle needed
-  state.thinkingEnabled = true;
-  if (thinkingToggle) {
-    // Hide the toggle since thinking is always on
-    thinkingToggle.checked = true;
-    thinkingToggle.disabled = true;
-    const toggleParent = thinkingToggle.closest('.setting-group-ultra');
-    if (toggleParent) {
-      toggleParent.style.display = 'none';
-    }
-  }
-
-  // AI Coder enhancement toggle
-  const aiCoderToggle = document.getElementById('ai-coder-toggle');
-  if (aiCoderToggle) {
-    // Load saved preference (default to TRUE - enabled by default with new improved version)
-    const aiCoderDefault = state.settings?.aiCoderEnabled !== false; // Default enabled
-    aiCoderToggle.checked = aiCoderDefault;
-    state.settings.aiCoderEnabled = aiCoderDefault;
-
-    aiCoderToggle.addEventListener('change', (event) => {
-      state.settings.aiCoderEnabled = event.target.checked;
-      persistClientSettings();
-      const status = event.target.checked ? 'enabled' : 'disabled';
-      const features = event.target.checked ? '(spell-check + smart prompts)' : '';
-      showNotification(`✨ AI Coder ${status} ${features}`, 'info', 2000);
-      console.log('[DEBUG] AI Coder enhancement:', status);
-    });
-  }
 
   sendBtn.addEventListener('click', () => sendMessage());
   input.addEventListener('keydown', (event) => {
@@ -784,6 +754,90 @@ function attachChatHandlers() {
 
   // Initialize on page load
   updateInputState();
+
+  // Image upload functionality
+  const imageUploadBtn = document.getElementById('image-upload-btn');
+  const imageUploadInput = document.getElementById('image-upload-input');
+  const imagePreviewContainer = document.getElementById('image-preview-container');
+  const imagePreviewList = document.getElementById('image-preview-list');
+  const imageCounter = document.getElementById('image-counter');
+
+  // Initialize images array in state if not exists
+  if (!state.currentImages) {
+    state.currentImages = [];
+  }
+
+  // Click upload button to trigger file input
+  if (imageUploadBtn && imageUploadInput) {
+    imageUploadBtn.addEventListener('click', () => {
+      imageUploadInput.click();
+    });
+
+    // Handle file selection
+    imageUploadInput.addEventListener('change', async (event) => {
+      const files = Array.from(event.target.files);
+
+      for (const file of files) {
+        if (file.type.startsWith('image/')) {
+          // Read file as base64
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const imageData = {
+              file: file,
+              dataUrl: e.target.result,
+              name: file.name,
+              size: file.size,
+              type: file.type
+            };
+            state.currentImages.push(imageData);
+            renderImagePreviews();
+          };
+          reader.readAsDataURL(file);
+        }
+      }
+
+      // Clear input so same file can be selected again
+      imageUploadInput.value = '';
+    });
+  }
+
+  function renderImagePreviews() {
+    if (!imagePreviewList || !imagePreviewContainer) return;
+
+    if (state.currentImages.length === 0) {
+      imagePreviewContainer.style.display = 'none';
+      if (imageCounter) imageCounter.style.display = 'none';
+      return;
+    }
+
+    imagePreviewContainer.style.display = 'block';
+    if (imageCounter) {
+      imageCounter.style.display = 'inline';
+      imageCounter.textContent = `${state.currentImages.length} image${state.currentImages.length !== 1 ? 's' : ''}`;
+    }
+
+    imagePreviewList.innerHTML = state.currentImages.map((img, index) => `
+      <div class="image-preview-item" data-index="${index}">
+        <img src="${img.dataUrl}" alt="${img.name}" />
+        <button class="image-preview-remove" data-index="${index}" aria-label="Remove image">×</button>
+      </div>
+    `).join('');
+
+    // Add click handlers for remove buttons
+    imagePreviewList.querySelectorAll('.image-preview-remove').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const index = parseInt(btn.dataset.index);
+        state.currentImages.splice(index, 1);
+        renderImagePreviews();
+      });
+    });
+  }
+
+  function clearImagePreviews() {
+    state.currentImages = [];
+    renderImagePreviews();
+  }
 
   clearBtn.addEventListener('click', async () => {
     await fetchJson(`/api/history?sessionId=${encodeURIComponent(state.activeSessionId)}`, {
@@ -843,6 +897,213 @@ function attachChatHandlers() {
       overlay.classList.remove('visible');
     }
     document.body.classList.remove('sidebar-open');
+  }
+
+  // Side Panel System (Right-side overlay panels)
+  const sidePanelContainer = document.getElementById('side-panel-container');
+  const sidePanels = {
+    prompts: document.getElementById('prompts-panel'),
+    models: document.getElementById('models-panel'),
+    history: document.getElementById('history-panel'),
+    options: document.getElementById('options-panel')
+  };
+
+  function openSidePanel(panelName) {
+    if (!sidePanelContainer || !sidePanels[panelName]) return;
+
+    // Close any currently open panel
+    Object.values(sidePanels).forEach(panel => {
+      if (panel) panel.classList.remove('active');
+    });
+
+    // Open the requested panel
+    sidePanelContainer.classList.add('open');
+    sidePanels[panelName].classList.add('active');
+
+    // Render panel content
+    renderPanelContent(panelName);
+
+    // Close mobile sidebar if open
+    closeMobileSidebar();
+  }
+
+  function closeSidePanel() {
+    if (!sidePanelContainer) return;
+
+    sidePanelContainer.classList.remove('open');
+    Object.values(sidePanels).forEach(panel => {
+      if (panel) panel.classList.remove('active');
+    });
+  }
+
+  // Render panel content based on panel type
+  function renderPanelContent(panelName) {
+    switch (panelName) {
+      case 'prompts':
+        renderPromptsPanel();
+        break;
+      case 'models':
+        renderModelsPanel();
+        break;
+      case 'history':
+        renderHistoryPanel();
+        break;
+      case 'options':
+        // Options panel is static, no rendering needed
+        break;
+    }
+  }
+
+  function renderPromptsPanel() {
+    const promptsList = document.getElementById('prompts-list');
+    if (!promptsList) return;
+
+    // Get saved prompts from localStorage
+    const savedPrompts = JSON.parse(localStorage.getItem('savedPrompts') || '[]');
+
+    if (savedPrompts.length === 0) {
+      promptsList.innerHTML = '<p class="side-panel-empty">No saved prompts yet.</p>';
+      return;
+    }
+
+    promptsList.innerHTML = savedPrompts.map((prompt, index) => `
+      <div class="side-panel-item" data-prompt-index="${index}">
+        <h4>${escapeHtml(prompt.title || 'Untitled Prompt')}</h4>
+        <p>${escapeHtml(prompt.content.substring(0, 100))}${prompt.content.length > 100 ? '...' : ''}</p>
+      </div>
+    `).join('');
+
+    // Add click handlers
+    promptsList.querySelectorAll('.side-panel-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const index = parseInt(item.dataset.promptIndex);
+        const prompt = savedPrompts[index];
+        if (prompt && chatInput) {
+          chatInput.value = prompt.content;
+          closeSidePanel();
+          chatInput.focus();
+        }
+      });
+    });
+  }
+
+  async function renderModelsPanel() {
+    const modelsList = document.getElementById('models-list');
+    if (!modelsList) return;
+
+    modelsList.innerHTML = '<p class="side-panel-loading">Loading models...</p>';
+
+    try {
+      // Fetch available models
+      const response = await fetch(`${getBackendUrl()}/api/chat/models`);
+      if (!response.ok) throw new Error('Failed to fetch models');
+
+      const data = await response.json();
+      const models = data.models || [];
+
+      if (models.length === 0) {
+        modelsList.innerHTML = '<p class="side-panel-empty">No models available.</p>';
+        return;
+      }
+
+      const currentModel = state.model || getSettings().model || '';
+
+      modelsList.innerHTML = models.map(model => {
+        const isActive = model === currentModel;
+        return `
+          <div class="side-panel-item ${isActive ? 'active' : ''}" data-model="${escapeHtml(model)}">
+            <h4>${escapeHtml(model)}</h4>
+            ${isActive ? '<p style="color: var(--primary); font-weight: 600;">Currently active</p>' : '<p>Click to switch to this model</p>'}
+          </div>
+        `;
+      }).join('');
+
+      // Add click handlers
+      modelsList.querySelectorAll('.side-panel-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const model = item.dataset.model;
+          if (model) {
+            state.model = model;
+            const settings = getSettings();
+            settings.model = model;
+            setSettings(settings);
+            showNotification(`Switched to model: ${model}`, 'success', 2000);
+            renderModelsPanel(); // Re-render to show new active model
+          }
+        });
+      });
+    } catch (error) {
+      console.error('Failed to load models:', error);
+      modelsList.innerHTML = '<p class="side-panel-empty">Failed to load models.</p>';
+    }
+  }
+
+  function renderHistoryPanel() {
+    const historyList = document.getElementById('history-list');
+    if (!historyList) return;
+
+    historyList.innerHTML = '<p class="side-panel-loading">Loading history...</p>';
+
+    // Get chat history from state or localStorage
+    const sessions = Object.values(state.sessions || {}).filter(s => s.messages && s.messages.length > 0);
+
+    if (sessions.length === 0) {
+      historyList.innerHTML = '<p class="side-panel-empty">No chat history yet.</p>';
+      return;
+    }
+
+    // Sort by last message timestamp
+    sessions.sort((a, b) => {
+      const aTime = a.messages[a.messages.length - 1]?.timestamp || 0;
+      const bTime = b.messages[b.messages.length - 1]?.timestamp || 0;
+      return bTime - aTime;
+    });
+
+    historyList.innerHTML = sessions.map(session => {
+      const lastMessage = session.messages[session.messages.length - 1];
+      const preview = lastMessage?.user || lastMessage?.assistant || '';
+      const timestamp = lastMessage?.timestamp ? new Date(lastMessage.timestamp).toLocaleDateString() : '';
+
+      return `
+        <div class="side-panel-item" data-session-id="${escapeHtml(session.id)}">
+          <h4>${escapeHtml(session.name || 'Untitled Session')}</h4>
+          <p>${escapeHtml(preview.substring(0, 100))}${preview.length > 100 ? '...' : ''}</p>
+          ${timestamp ? `<p style="font-size: 0.75rem; color: var(--text-light); margin-top: 0.25rem;">${timestamp}</p>` : ''}
+        </div>
+      `;
+    }).join('');
+
+    // Add click handlers
+    historyList.querySelectorAll('.side-panel-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const sessionId = item.dataset.sessionId;
+        if (sessionId) {
+          switchToSession(sessionId);
+          closeSidePanel();
+        }
+      });
+    });
+  }
+
+  // Close panel event listeners
+  if (sidePanelContainer) {
+    // Close button handlers
+    sidePanelContainer.querySelectorAll('.side-panel-close').forEach(btn => {
+      btn.addEventListener('click', closeSidePanel);
+    });
+
+    // Backdrop click handler
+    const backdrop = sidePanelContainer.querySelector('.side-panel-backdrop');
+    if (backdrop) {
+      backdrop.addEventListener('click', closeSidePanel);
+    }
+
+    // ESC key handler for side panels
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && sidePanelContainer.classList.contains('open')) {
+        closeSidePanel();
+      }
+    });
   }
 
   if (sidebarToggleMobile) {
@@ -1096,36 +1357,57 @@ function attachChatHandlers() {
 
   // Navigation handlers for ultra-modern layout
   const navSessionsBtn = document.getElementById('nav-sessions-ultra');
+  const navModelsBtn = document.getElementById('nav-models-ultra');
+  const navPromptsBtn = document.getElementById('nav-prompts-ultra');
   const navHistoryBtn = document.getElementById('nav-history-ultra');
-  const navApiBtn = document.getElementById('nav-api-ultra');
+  const navOptionsBtn = document.getElementById('nav-options-ultra');
+  const navSettingsBtn = document.getElementById('nav-settings-ultra');
 
   if (navSessionsBtn) {
     navSessionsBtn.addEventListener('click', () => {
-      // Navigate to sessions page
-      state.currentPage = 'sessions';
-      renderNav();
-      renderPage('sessions');
+      // Sessions are in the left sidebar, so just close any open panels
+      closeSidePanel();
       closeMobileSidebar();
+      // Sessions are always visible on desktop, no action needed
+    });
+  }
+
+  if (navModelsBtn) {
+    navModelsBtn.addEventListener('click', () => {
+      // Open models side panel
+      openSidePanel('models');
+    });
+  }
+
+  if (navPromptsBtn) {
+    navPromptsBtn.addEventListener('click', () => {
+      // Open prompts side panel
+      openSidePanel('prompts');
     });
   }
 
   if (navHistoryBtn) {
     navHistoryBtn.addEventListener('click', () => {
-      // Navigate to history page
-      state.currentPage = 'history';
-      renderNav();
-      renderPage('history');
-      closeMobileSidebar();
+      // Open history side panel
+      openSidePanel('history');
     });
   }
 
-  if (navApiBtn) {
-    navApiBtn.addEventListener('click', () => {
-      // Navigate to API page
-      state.currentPage = 'api';
-      renderNav();
-      renderPage('api');
-      closeMobileSidebar();
+  if (navOptionsBtn) {
+    navOptionsBtn.addEventListener('click', () => {
+      // Open options side panel
+      openSidePanel('options');
+    });
+  }
+
+  if (navSettingsBtn) {
+    navSettingsBtn.addEventListener('click', () => {
+      // Toggle sidebar visibility
+      if (chatSidebar?.classList.contains('open')) {
+        closeMobileSidebar();
+      } else {
+        openMobileSidebar();
+      }
     });
   }
 
@@ -1151,6 +1433,9 @@ function attachChatHandlers() {
     if (typeof updateInputState === 'function') {
       updateInputState();
     }
+    if (!state.thinkingEnabled) {
+      return;
+    }
   }
 
   async function sendMessage() {
@@ -1168,24 +1453,34 @@ function attachChatHandlers() {
     // CRITICAL: Display original message, not enhanced version
     const originalMessage = message;
     const liveUser = appendLiveUserMessage(originalMessage);
-    const liveThinking = appendThinkingMessage();
+    const liveThinking = state.thinkingEnabled ? appendThinkingMessage() : null;
     const effectiveModel = resolveModelForRequest();
     updateThinkingStatus(effectiveModel);
 
     try {
-      const sessionsArray = Array.isArray(state.sessions) ? state.sessions : [];
-      const session = sessionsArray.find((item) => item.id === state.activeSessionId);
-      const sessionInstructions = session?.instructions?.trim();
-      const instructionsToUse =
-        sessionInstructions && sessionInstructions.length
-          ? sessionInstructions
-          : state.settings?.systemInstructions;
+  const sessionsArray = Array.isArray(state.sessions) ? state.sessions : [];
+  const session = sessionsArray.find((item) => item.id === state.activeSessionId);
+  const sessionInstructions = session?.instructions?.trim();
+  let instructionsToUse =
+    sessionInstructions && sessionInstructions.length
+      ? sessionInstructions
+      : state.settings?.systemInstructions;
 
-      // Enhance message for AI coding if enabled
-      let processedMessage = enhanceAICoderPrompt(message);
-      if (isStructuredPromptEnabled()) {
-        processedMessage = addXMLStructurePrompt(processedMessage);
-      }
+  if (isStructuredPromptEnabled()) {
+    instructionsToUse = applyStructuredDirective(instructionsToUse);
+  }
+
+      // Use raw message; no additional prompt engineering
+      const processedMessage = message;
+
+      // Prepare images for the payload (convert to base64 strings)
+      const images = state.currentImages && state.currentImages.length > 0
+        ? state.currentImages.map(img => ({
+            data: img.dataUrl.split(',')[1], // Extract base64 data
+            type: img.type,
+            name: img.name
+          }))
+        : [];
 
       const payload = {
         message: originalMessage, // Original for storage
@@ -1196,7 +1491,8 @@ function attachChatHandlers() {
         apiEndpoint: state.settings?.apiEndpoint,
         sessionId: state.activeSessionId,
         thinkingEnabled: state.thinkingEnabled,
-        thinkingMode: state.thinkingMode
+        thinkingMode: state.thinkingMode,
+        images: images.length > 0 ? images : undefined
       };
 
       let triedThinkingStream = false;
@@ -1252,6 +1548,7 @@ function attachChatHandlers() {
       clearLiveEntries();
       renderChatMessages();
       renderHistoryPage();
+      clearImagePreviews(); // Clear images after successful send
       if (thinkingStreamFailed) {
         clearThinkingStatusError();
       }
@@ -1367,6 +1664,7 @@ function attachChatHandlers() {
           clearLiveEntries();
           renderChatMessages();
           renderHistoryPage();
+          clearImagePreviews(); // Clear images after successful send
           return true;
         }
       } catch (error) {
@@ -1987,22 +2285,72 @@ async function createNewChat() {
 }
 
 // XML Tag Parsing for Structured Content
-function parseXMLTags(content) {
+function parseXMLTags(content = '') {
   const tags = {};
+  const sanitized = String(content || '');
+  if (!sanitized.includes('<')) {
+    return { tags, remainingContent: sanitized };
+  }
+
+  if (typeof DOMParser !== 'undefined') {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(`<wrapper>${sanitized}</wrapper>`, 'text/xml');
+      if (!doc.querySelector('parsererror')) {
+        const queue = [];
+        Array.from(doc.documentElement.children).forEach((node) => {
+          if (node.tagName && node.tagName.toLowerCase() === 'response') {
+            queue.push(...Array.from(node.children));
+          } else {
+            queue.push(node);
+          }
+        });
+        queue.forEach((node) => {
+          if (!node.tagName) return;
+          const tagName = node.tagName.toLowerCase();
+          const tagContent = (node.textContent || '').trim();
+          if (tagContent) {
+            assignStructuredTagValue(tags, tagName, tagContent);
+          }
+        });
+        const looseText = Array.from(doc.documentElement.childNodes)
+          .filter((node) => node.nodeType === Node.TEXT_NODE)
+          .map((node) => node.textContent.trim())
+          .filter(Boolean)
+          .join('\n\n');
+        return { tags, remainingContent: looseText };
+      }
+    } catch (error) {
+      console.warn('[structured-tags] DOM parsing fallback triggered', error);
+    }
+  }
+
   const xmlTagRegex = /<(\w+)>([\s\S]*?)<\/\1>/g;
   let match;
-  let remainingContent = content;
-
-  // Extract XML tags
-  while ((match = xmlTagRegex.exec(content)) !== null) {
+  let remainingContent = sanitized;
+  while ((match = xmlTagRegex.exec(sanitized)) !== null) {
     const tagName = match[1].toLowerCase();
     const tagContent = match[2].trim();
-    tags[tagName] = tagContent;
-    // Remove the tag from remaining content
+    if (!tagContent) continue;
+    assignStructuredTagValue(tags, tagName, tagContent);
     remainingContent = remainingContent.replace(match[0], '').trim();
   }
 
-  return { tags, remainingContent };
+  return { tags, remainingContent: remainingContent.trim() };
+}
+
+function assignStructuredTagValue(target, tagName, value) {
+  if (!value) {
+    return;
+  }
+  if (target[tagName]) {
+    if (!Array.isArray(target[tagName])) {
+      target[tagName] = [target[tagName]];
+    }
+    target[tagName].push(value);
+  } else {
+    target[tagName] = value;
+  }
 }
 
 function createStructuredSection(tagName, content, isCollapsible = false) {
@@ -2024,6 +2372,7 @@ function createStructuredSection(tagName, content, isCollapsible = false) {
       </div>
     `;
     header.classList.add('collapsible');
+    header.appendChild(createStructuredCopyButton(label, content));
 
     const contentDiv = document.createElement('div');
     contentDiv.className = 'structured-content collapsed';
@@ -2044,6 +2393,7 @@ function createStructuredSection(tagName, content, isCollapsible = false) {
         <span class="structured-label">${label}</span>
       </div>
     `;
+    header.appendChild(createStructuredCopyButton(label, content));
 
     const contentDiv = document.createElement('div');
     contentDiv.className = 'structured-content';
@@ -2056,18 +2406,38 @@ function createStructuredSection(tagName, content, isCollapsible = false) {
   return section;
 }
 
+function createStructuredCopyButton(label, content) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'structured-copy-btn';
+  btn.textContent = 'Copy';
+  btn.addEventListener('click', async (event) => {
+    event.stopPropagation();
+    await copyToClipboard(content, {
+      successMessage: `${label} copied to clipboard`,
+      errorMessage: 'Unable to copy section'
+    });
+  });
+  return btn;
+}
+
 function getTagIcon(tagName) {
   const icons = {
     role: '👤',
     context: '📋',
     goal: '🎯',
+    objectives: '🎯',
     todos: '✅',
     requirements: '📋',
+    discovery: '🧭',
+    research: '🌐',
     analysis: '🔍',
     solution: '💡',
+    execution: '⚙️',
     implementation: '⚙️',
     verification: '✓',
     notes: '📝',
+    reporting: '🗒️',
     warning: '⚠️',
     error: '❌',
     success: '✅'
@@ -2080,13 +2450,18 @@ function getTagLabel(tagName) {
     role: 'Role',
     context: 'Context',
     goal: 'Goal',
+    objectives: 'Objectives',
     todos: 'Todo Items',
     requirements: 'Requirements',
+    discovery: 'Discovery',
+    research: 'Web Research',
     analysis: 'Analysis',
     solution: 'Solution',
+    execution: 'Execution',
     implementation: 'Implementation',
     verification: 'Verification',
     notes: 'Notes',
+    reporting: 'Reporting',
     warning: 'Warning',
     error: 'Error',
     success: 'Success'
@@ -2226,25 +2601,51 @@ function renderChatMessages() {
       }
 
       // Render structured sections for each tag
-      const structuredOrder = ['role', 'context', 'goal', 'requirements', 'analysis', 'solution', 'implementation', 'todos', 'verification', 'notes'];
+      const structuredOrder = [
+        'role',
+        'context',
+        'goal',
+        'objectives',
+        'requirements',
+        'discovery',
+        'research',
+        'analysis',
+        'solution',
+        'execution',
+        'implementation',
+        'todos',
+        'verification',
+        'reporting',
+        'notes'
+      ];
+      const collapsibleTags = new Set(['analysis', 'discovery', 'research', 'execution', 'implementation', 'verification', 'todos']);
 
       let hasStructuredContent = false;
-      structuredOrder.forEach(tagName => {
-        if (tags[tagName]) {
-          const isCollapsible = ['todos', 'analysis', 'implementation', 'verification'].includes(tagName);
-          const section = createStructuredSection(tagName, tags[tagName], isCollapsible);
-          messageContent.appendChild(section);
-          hasStructuredContent = true;
+      const processedTags = new Set();
+      structuredOrder.forEach((tagName) => {
+        if (!tags[tagName]) {
+          return;
         }
+        const values = Array.isArray(tags[tagName]) ? tags[tagName] : [tags[tagName]];
+        values.forEach((sectionValue) => {
+          const section = createStructuredSection(tagName, sectionValue, collapsibleTags.has(tagName));
+          messageContent.appendChild(section);
+        });
+        hasStructuredContent = true;
+        processedTags.add(tagName);
       });
 
       // Add any remaining XML tags not in the standard order
-      Object.keys(tags).forEach(tagName => {
-        if (!structuredOrder.includes(tagName)) {
-          const section = createStructuredSection(tagName, tags[tagName], false);
-          messageContent.appendChild(section);
-          hasStructuredContent = true;
+      Object.keys(tags).forEach((tagName) => {
+        if (processedTags.has(tagName)) {
+          return;
         }
+        const values = Array.isArray(tags[tagName]) ? tags[tagName] : [tags[tagName]];
+        values.forEach((sectionValue) => {
+          const section = createStructuredSection(tagName, sectionValue, false);
+          messageContent.appendChild(section);
+        });
+        hasStructuredContent = true;
       });
 
       // Add remaining content if any
@@ -2264,23 +2665,31 @@ function renderChatMessages() {
       // Add message actions
       const messageActions = document.createElement('div');
       messageActions.className = 'message-actions';
-      const assistantText = escapeHtml(assistantBody);
-      const userText = escapeHtml(entry.user || '');
+      const assistantRaw = entry.assistant || '';
+      const userRaw = entry.user || '';
       messageActions.innerHTML = `
-        <button class="action-btn copy-btn" data-copy-text="${assistantText}" title="Copy message">
+        <button class="action-btn copy-btn" title="Copy prompt">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
           </svg>
           Copy
         </button>
-        <button class="action-btn regenerate-btn" data-user-message="${userText}" title="Regenerate response">
+        <button class="action-btn regenerate-btn" title="Regenerate response">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
           </svg>
           Regenerate
         </button>
       `;
+      const copyButton = messageActions.querySelector('.copy-btn');
+      if (copyButton) {
+        copyButton.dataset.copyText = assistantRaw;
+      }
+      const regenerateButton = messageActions.querySelector('.regenerate-btn');
+      if (regenerateButton) {
+        regenerateButton.dataset.userMessage = userRaw;
+      }
       contentWrapper.appendChild(messageActions);
 
       assistantBubble.appendChild(contentWrapper);
@@ -2291,22 +2700,19 @@ function renderChatMessages() {
   });
 
   // Add message action event listeners
-  container.querySelectorAll('.copy-btn').forEach(btn => {
+  container.querySelectorAll('.copy-btn').forEach((btn) => {
     btn.addEventListener('click', async (e) => {
-      const text = e.currentTarget.dataset.copyText;
-      try {
-        await navigator.clipboard.writeText(text);
+      const text = e.currentTarget.dataset.copyText || '';
+      const originalContent = e.currentTarget.innerHTML;
+      const success = await copyToClipboard(text, {
+        successMessage: 'Prompt copied to clipboard',
+        errorMessage: 'Unable to copy prompt'
+      });
+      if (success) {
         e.currentTarget.innerHTML = '<span style="color: var(--success)">✓</span>';
         setTimeout(() => {
-          e.currentTarget.innerHTML = `
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-            </svg>
-          `;
-        }, 2000);
-      } catch (err) {
-        console.error('Failed to copy text:', err);
+          e.currentTarget.innerHTML = originalContent;
+        }, 1800);
       }
     });
   });
@@ -3485,37 +3891,6 @@ function normalizeBaseUrl(url) {
   }
 }
 
-// XML Structure Prompting System
-function addXMLStructurePrompt(userMessage) {
-  // Check if structured prompts are enabled
-  if (!isStructuredPromptEnabled()) {
-    return userMessage; // Return original message if disabled
-  }
-
-  const xmlPromptTemplate = `
-Please structure your response using XML tags to organize the content clearly. Use the following structure when relevant:
-
-<role>Your role or perspective in responding to this query</role>
-<context>Relevant background information or context</context>
-<goal>The main objective or what you aim to achieve</goal>
-<analysis>Your analysis of the situation, problem, or request</analysis>
-<solution>Your proposed solution or main response</solution>
-<implementation>Specific steps or implementation details</implementation>
-<todos>
-- Actionable task 1
-- Actionable task 2
-- Actionable task 3
-</todos>
-<verification>How to verify or validate the solution</verification>
-<notes>Additional notes, considerations, or warnings</notes>
-
-User's request: ${userMessage}
-
-Please provide a comprehensive, structured response using the relevant XML tags from above.`;
-
-  return xmlPromptTemplate;
-}
-
 function isStructuredPromptEnabled() {
   if (!state.settings) {
     return false;
@@ -3533,6 +3908,42 @@ function toggleStructuredPrompts(forceValue) {
   persistClientSettings();
   const status = nextValue ? 'enabled' : 'disabled';
   showStructuredPromptNotification(status);
+}
+
+function applyStructuredDirective(baseInstructions = '') {
+  const directive = `
+Respond ONLY using the XML golden schema below. Keep every section in order and replace the ellipses with concrete content so the user receives a complete document. Discovery must happen first, web research second, execution third, then verification and reporting.
+
+<response>
+  <role>...</role>
+  <context>...</context>
+  <objectives>
+    <item>...</item>
+  </objectives>
+  <discovery>
+    <step>...</step>
+  </discovery>
+  <research>
+    <webQuery>...</webQuery>
+    <source>...</source>
+    <insight>...</insight>
+  </research>
+  <execution>
+    <step>...</step>
+  </execution>
+  <verification>
+    <check>...</check>
+  </verification>
+  <reporting>
+    <summary>...</summary>
+    <deliverables>
+      <item>...</item>
+    </deliverables>
+  </reporting>
+  <notes>...</notes>
+</response>`;
+
+  return [baseInstructions || '', directive].filter(Boolean).join('\n\n');
 }
 
 // Spell-check and auto-correct common mistakes
@@ -3643,62 +4054,6 @@ function spellCheckMessage(message) {
 }
 
 // AI Coder Enhancement - Smart, concise prompt improvement
-function enhanceAICoderPrompt(userMessage) {
-  // Check if AI Coder enhancement is enabled
-  if (!state.settings?.aiCoderEnabled) {
-    console.log('[AI CODER] DISABLED - returning original message');
-    return userMessage;
-  }
-
-  console.log('[AI CODER] ENABLED - enhancing message');
-
-  // Step 1: Fix spelling mistakes
-  const spellChecked = spellCheckMessage(userMessage);
-  console.log('[AI CODER] Spell-checked:', spellChecked);
-
-  // Step 2: Don't enhance if already detailed or structured
-  const isDetailed = spellChecked.length > 200;
-  const isStructured = spellChecked.includes('<') || spellChecked.includes('```');
-
-  if (isDetailed || isStructured) {
-    return spellChecked;
-  }
-
-  // Step 3: Detect intent
-  const codingKeywords = /\b(fix|add|create|implement|build|develop|make|update|modify|change|refactor|optimize|improve|debug|test|write|code|script|function|feature|bug|issue|error|component|api|endpoint|database|query|style|css|html|javascript|react|vue|python|node|express)\b/i;
-  const isCodingTask = codingKeywords.test(spellChecked);
-
-  // Step 4: Generate structured prompt for coding tasks
-  if (isCodingTask) {
-    const enhanced = `${spellChecked}
-
-Please structure this as a prompt for an AI coder:
-
-DISCOVERY (what to find/understand):
-- Relevant files
-- Current implementation
-- Dependencies
-
-IMPLEMENTATION (what to build):
-- Specific changes needed
-- Full solution required
-- No placeholders
-
-TESTING (how to verify):
-- Test cases
-- Expected behavior
-- Error handling
-
-Then add rules: work first, ask never, complete end-to-end, test it, report results.`;
-    console.log('[AI CODER] Enhanced prompt for coding task:', enhanced);
-    return enhanced;
-  }
-
-  // For non-coding queries, just return spell-checked version
-  console.log('[AI CODER] Non-coding query, returning spell-checked only');
-  return spellChecked;
-}
-
 function showStructuredPromptNotification(status) {
   const notification = document.createElement('div');
   notification.className = 'theme-notification';
@@ -3845,6 +4200,40 @@ function initializeThemeSystem() {
         applyTheme(currentTheme);
       }
     });
+  }
+}
+
+async function copyToClipboard(text, options = {}) {
+  const { successMessage = 'Copied to clipboard', errorMessage = 'Unable to copy to clipboard' } = options;
+  const value = typeof text === 'string' ? text : String(text || '');
+  if (!value.trim()) {
+    showNotification('Nothing to copy', 'warning', 2000);
+    return false;
+  }
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+    } else {
+      const textarea = document.createElement('textarea');
+      textarea.value = value;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+    if (successMessage) {
+      showNotification(successMessage, 'success', 1600);
+    }
+    return true;
+  } catch (error) {
+    console.error('Failed to copy text:', error);
+    if (errorMessage) {
+      showNotification(errorMessage, 'error', 2200);
+    }
+    return false;
   }
 }
 
@@ -4054,8 +4443,15 @@ function persistThinkingPreference(value) {
 }
 
 function loadThinkingPreference() {
-  // Thinking is now always enabled for better AI responses
-  return true;
+  try {
+    const stored = localStorage.getItem(THINKING_PREF_KEY);
+    if (stored === null) {
+      return true;
+    }
+    return JSON.parse(stored) !== false;
+  } catch (_) {
+    return true;
+  }
 }
 
 // Cloud synchronization functions
