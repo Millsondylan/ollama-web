@@ -345,6 +345,26 @@ const INSTRUCTION_PRESETS = [
       strictXML: false
     },
     updatedAt: '2025-02-02T08:45:00Z'
+  },
+  {
+    id: 'system-internal',
+    label: 'System Internal (Hidden)',
+    description: 'Hidden preset for system configuration and internal use only.',
+    instructions: `<role>You are a system configuration assistant.</role>
+<guidelines>
+  <rule>Process system configuration requests only.</rule>
+  <rule>Validate all configuration changes before applying.</rule>
+  <rule>Log all system-level operations.</rule>
+</guidelines>`,
+    version: '1.0',
+    category: 'system',
+    workflow: {
+      requiresDiscovery: false,
+      autoComplete: true,
+      strictXML: true
+    },
+    hidden: true, // This preset will not appear in the UI
+    updatedAt: '2025-01-17T00:00:00Z'
   }
 ];
 
@@ -2737,10 +2757,13 @@ app.post('/api/sessions/:id/mode/switch', async (req, res) => {
 });
 
 app.get('/api/settings', (req, res) => {
+  // Filter out hidden presets from the public API
+  const visiblePresets = INSTRUCTION_PRESETS.filter(preset => !preset.hidden);
+
   return res.json({
     defaults: DEFAULT_SETTINGS,
     current: runtimeSettings,
-    presets: INSTRUCTION_PRESETS
+    presets: visiblePresets
   });
 });
 

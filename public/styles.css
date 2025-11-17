@@ -648,6 +648,11 @@ body:not([data-theme='dark']) .session-group-title-ultra {
   border-radius: 14px;
   cursor: pointer;
   transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+  min-height: 44px;
+  min-width: fit-content;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sidebar-btn-ultra svg {
@@ -1345,11 +1350,14 @@ body:not([data-theme='dark']) .session-item {
   padding: 1rem 1.25rem;
   border-radius: 22px;
   border-bottom-right-radius: 4px;
-  max-width: 70%;
+  max-width: 80%;
+  min-width: 100px;
   word-wrap: break-word;
+  word-break: break-word;
   line-height: 1.5;
   font-size: 15px;
   box-shadow: 0 10px 25px rgba(0, 132, 255, 0.25);
+  display: inline-block;
 }
 
 .message-bubble-assistant {
@@ -1364,10 +1372,14 @@ body:not([data-theme='dark']) .session-item {
   padding: 1rem 1.25rem;
   border-radius: 22px;
   border-bottom-left-radius: 4px;
-  max-width: 70%;
+  max-width: 80%;
+  min-width: 100px;
   word-wrap: break-word;
+  word-break: break-word;
   line-height: 1.6;
   font-size: 15px;
+  display: inline-block;
+  flex: 1;
   border: 1px solid var(--border);
   box-shadow: 0 15px 30px rgba(15, 23, 42, 0.08);
 }
@@ -1394,6 +1406,8 @@ body:not([data-theme='dark']) .session-item {
   cursor: pointer;
   font-size: 14px;
   transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
 }
 
 .thinking-section:hover {
@@ -1454,11 +1468,16 @@ body:not([data-theme='dark']) .session-item {
   font-size: 13px;
   font-family: 'SF Mono', 'Monaco', 'Cascadia Code', monospace;
   color: var(--text);
-  max-height: 400px;
+  max-height: 600px;
+  min-height: 80px;
+  overflow-x: auto;
   overflow-y: auto;
   white-space: pre-wrap;
   line-height: 1.6;
   transition: all 0.2s ease;
+  word-wrap: break-word;
+  word-break: break-word;
+  flex: 1;
 }
 
 .thinking-text {

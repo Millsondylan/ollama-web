@@ -3241,7 +3241,9 @@ function attachChatHandlers() {
       ? sessionInstructions
       : state.settings?.systemInstructions;
 
-  if (isStructuredPromptEnabled()) {
+  // Instant mode always uses XML-structured responses by default
+  const isInstantMode = !session || !session.mode || session.mode === 'instant';
+  if (isStructuredPromptEnabled() || isInstantMode) {
     instructionsToUse = applyStructuredDirective(instructionsToUse);
   }
 
@@ -3408,6 +3410,7 @@ function attachChatHandlers() {
           const thinkingPreview = resolveRenderableThinking(thinkingPreviewRaw);
           console.log('[DEBUG] Token received:', chunk.token, 'Total:', aggregated.length);
           updateThinkingEntry(liveThinking, thinkingPreview);
+          scrollAutoChatToBottom(); // Auto-scroll during streaming
         }
         if (chunk.error) {
           throw new Error(chunk.error);
@@ -3449,6 +3452,7 @@ function attachChatHandlers() {
           clearLiveEntries();
           renderChatMessages();
           renderHistoryPage();
+          scrollAutoChatToBottom(); // Auto-scroll after rendering final message
           if (Array.isArray(chunk.visionDescriptions) && chunk.visionDescriptions.length) {
             showNotification('Vision context attached from screenshots.', 'info', 2500);
           }
@@ -7111,13 +7115,15 @@ function syncWorkflowStateWithSessions() {
 function isSessionReadyForExecution(sessionId) {
   // Check if session is in instant mode - instant mode always ready
   const session = state.sessions.find(s => s.id === sessionId);
-  if (session && session.mode === 'instant') {
-    return true; // Instant mode bypasses workflow checks
+
+  // Default to instant mode if no mode is explicitly set
+  if (!session || !session.mode || session.mode === 'instant') {
+    return true; // Instant mode or unset mode bypasses workflow checks
   }
 
   // For planning mode, check workflow phase
   const entry = getWorkflowEntry(sessionId);
-  if (!entry) return true;
+  if (!entry) return true; // No workflow entry means no restrictions
   return entry.phase === WORKFLOW_PHASES.EXECUTION;
 }
 
