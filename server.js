@@ -1301,6 +1301,9 @@ app.post('/api/chat', async (req, res) => {
       : session.history.slice(-1 * contextLimit);
 
   const prompt = buildPrompt(messageForAI, combinedInstructions, contextSlice);
+  const images = Array.isArray(req.body?.images) && req.body.images.length
+    ? req.body.images.map(img => img.data || img).slice(0, MAX_GENERATE_IMAGES)
+    : undefined;
   const thinkingText = '';
   const startedAt = Date.now();
   let latestSplit = { thinking: thinkingText || '', response: '', hasMarker: Boolean((thinkingText || '').length) };
@@ -1317,7 +1320,8 @@ app.post('/api/chat', async (req, res) => {
       body: JSON.stringify({
         model: modelToUse,
         prompt,
-        stream: false  // Non-streaming request
+        stream: false,
+        images: images
       })
     });
 
@@ -1583,6 +1587,9 @@ app.post('/api/chat/stream', async (req, res) => {
   const augmentedSystemPrompt = addThinkingPreference(systemPrompt, thinkingMode);
   const combinedInstructions = [augmentedSystemPrompt, attachmentContext].filter(Boolean).join('\n\n');
   const prompt = buildPrompt(messageForAI, combinedInstructions, contextSlice);
+  const images = Array.isArray(req.body?.images) && req.body.images.length
+    ? req.body.images.map(img => img.data || img).slice(0, MAX_GENERATE_IMAGES)
+    : undefined;
   const thinkingText = '';
   const startedAt = Date.now();
 
@@ -1618,7 +1625,8 @@ app.post('/api/chat/stream', async (req, res) => {
       body: JSON.stringify({
         model: modelToUse,
         prompt,
-        stream: true
+        stream: true,
+        images: images
       })
     });
 
