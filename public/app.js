@@ -2372,7 +2372,6 @@ function createStructuredSection(tagName, content, isCollapsible = false) {
       </div>
     `;
     header.classList.add('collapsible');
-    header.appendChild(createStructuredCopyButton(label, content));
 
     const contentDiv = document.createElement('div');
     contentDiv.className = 'structured-content collapsed';
@@ -2393,7 +2392,6 @@ function createStructuredSection(tagName, content, isCollapsible = false) {
         <span class="structured-label">${label}</span>
       </div>
     `;
-    header.appendChild(createStructuredCopyButton(label, content));
 
     const contentDiv = document.createElement('div');
     contentDiv.className = 'structured-content';
@@ -2406,20 +2404,6 @@ function createStructuredSection(tagName, content, isCollapsible = false) {
   return section;
 }
 
-function createStructuredCopyButton(label, content) {
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'structured-copy-btn';
-  btn.textContent = 'Copy';
-  btn.addEventListener('click', async (event) => {
-    event.stopPropagation();
-    await copyToClipboard(content, {
-      successMessage: `${label} copied to clipboard`,
-      errorMessage: 'Unable to copy section'
-    });
-  });
-  return btn;
-}
 
 function getTagIcon(tagName) {
   const icons = {
@@ -2618,7 +2602,7 @@ function renderChatMessages() {
         'reporting',
         'notes'
       ];
-      const collapsibleTags = new Set(['analysis', 'discovery', 'research', 'execution', 'implementation', 'verification', 'todos']);
+      const collapsibleTags = new Set(['discovery', 'research']);
 
       let hasStructuredContent = false;
       const processedTags = new Set();

@@ -1818,19 +1818,6 @@ button {
   display: none;
 }
 
-.structured-copy-btn {
-  border: none;
-  background: transparent;
-  color: var(--text-light);
-  font-size: 0.75rem;
-  cursor: pointer;
-  transition: color 0.2s ease;
-}
-
-.structured-copy-btn:hover {
-  color: var(--primary);
-}
-
 .toggle-icon {
   font-size: 0.85rem;
   margin-left: 0.25rem;
