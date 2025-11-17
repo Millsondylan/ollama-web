@@ -2,18 +2,19 @@
 
 const { Readable } = require('stream');
 
-const mockPort = 14001;
-const serverPort = 4100;
+let mockPort = Number(process.env.MOCK_PORT || 14001);
+const serverPort = Number(process.env.SERVER_PORT || 4100);
 
-process.env.PORT = process.env.PORT || String(serverPort);
-process.env.OLLAMA_HOST = process.env.OLLAMA_HOST || `http://127.0.0.1:${mockPort}/`;
-process.env.OLLAMA_CONNECTIVITY_TIMEOUT_MS = process.env.OLLAMA_CONNECTIVITY_TIMEOUT_MS || '2000';
-process.env.OLLAMA_GENERATION_TIMEOUT_MS = process.env.OLLAMA_GENERATION_TIMEOUT_MS || '10000';
-process.env.OLLAMA_STREAM_TIMEOUT_MS = process.env.OLLAMA_STREAM_TIMEOUT_MS || '0';
-process.env.STREAM_HEARTBEAT_INTERVAL_MS = process.env.STREAM_HEARTBEAT_INTERVAL_MS || '50';
+process.env.PORT = String(serverPort);
+process.env.OLLAMA_HOST = `http://127.0.0.1:${mockPort}/`;
+process.env.OLLAMA_CONNECTIVITY_TIMEOUT_MS = '2000';
+process.env.OLLAMA_GENERATION_TIMEOUT_MS = '10000';
+process.env.OLLAMA_STREAM_TIMEOUT_MS = '0';
+process.env.STREAM_HEARTBEAT_INTERVAL_MS = '50';
 
 const { startMockOllama } = require('./mock-ollama');
 const { startServer } = require('../server');
+const net = require('net');
 
 async function ensureFetch() {
   if (typeof fetch !== 'undefined') {
@@ -23,13 +24,38 @@ async function ensureFetch() {
   return nodeFetch;
 }
 
+function findAvailablePort(start) {
+  const canListen = (port, host) =>
+    new Promise((resolve) => {
+      const srv = net
+        .createServer()
+        .once('error', () => resolve(false))
+        .once('listening', () => srv.close(() => resolve(true)))
+        .listen(port, host);
+    });
+
+  return new Promise((resolve) => {
+    const tryPort = async (port) => {
+      const okV6 = await canListen(port, '::');
+      if (!okV6) return tryPort(port + 1);
+      const okV4 = await canListen(port, '127.0.0.1');
+      if (!okV4) return tryPort(port + 1);
+      resolve(port);
+    };
+    tryPort(start);
+  });
+}
+
 async function run() {
   const fetchImpl = await ensureFetch();
+  mockPort = await findAvailablePort(mockPort);
+  process.env.OLLAMA_HOST = `http://127.0.0.1:${mockPort}/`;
   const mock = await startMockOllama({ port: mockPort, streamDelayMs: 40 });
   const listener = startServer(serverPort);
 
   try {
     await waitForServer(fetchImpl, serverPort);
+    await primeServer(fetchImpl, serverPort);
     await verifyNonStreaming(fetchImpl, serverPort);
     await verifyStreaming(fetchImpl, serverPort);
     await verifyChatStream(fetchImpl, serverPort);
@@ -38,6 +64,23 @@ async function run() {
     console.log('[verify] All checks passed');
   } finally {
     await Promise.all([mock.close(), closeServer(listener)]);
+  }
+}
+
+async function primeServer(fetchImpl, port) {
+  const response = await fetchImpl(`http://127.0.0.1:${port}/api/settings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'mock-model',
+      apiEndpoint: `http://127.0.0.1:${mockPort}/`,
+      ollamaMode: 'local'
+    })
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Failed to configure server settings (${response.status}): ${text}`);
   }
 }
 
@@ -279,12 +322,27 @@ async function verifySessionPresetSync(fetchImpl, port) {
 }
 
 function closeServer(listener) {
-  return new Promise((resolve, reject) => {
-    listener.close((err) => {
-      if (err) reject(err);
-      else resolve();
+  if (!listener) {
+    return Promise.resolve();
+  }
+
+  if (typeof listener.then === 'function') {
+    return listener.then((resolved) => closeServer(resolved));
+  }
+
+  if (typeof listener.close === 'function') {
+    return new Promise((resolve, reject) => {
+      listener.close((err) => {
+        if (err && err.code !== 'ERR_SERVER_NOT_RUNNING') {
+          reject(err);
+        } else {
+          resolve();
+        }
+      });
     });
-  });
+  }
+
+  return Promise.resolve();
 }
 
 run().catch((error) => {

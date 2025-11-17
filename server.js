@@ -30,9 +30,6 @@ function shouldDiscardThinkingText(text = '', sessionInstructions = '', globalIn
 
   return false;
 }
-function normalizeTextBlock(value = '') {
-  return String(value || '').trim().replace(/\s+/g, ' ');
-}
 
 function isSystemInstructionBlock(candidate = '', instructions = '') {
   if (!candidate || !instructions) {
@@ -60,6 +57,10 @@ const { spawn, spawnSync } = require('child_process');
 const { Readable } = require('stream');
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const compression = require('compression');
+const rateLimit = require('express-rate-limit');
+const morgan = require('morgan');
 const crypto = require('crypto');
 
 const app = express();
@@ -134,6 +135,7 @@ const SESSIONS_FILE = path.join(STORAGE_DIR, 'sessions.json');
 const API_KEYS_FILE = path.join(STORAGE_DIR, 'api-keys.json');
 const VISION_CACHE_FILE = path.join(STORAGE_DIR, 'vision-cache.json');
 const SETTINGS_FILE = path.join(STORAGE_DIR, 'settings.json');
+const PROJECTS_FILE = path.join(STORAGE_DIR, 'projects.json');
 
 /**
  * API surface
@@ -251,6 +253,37 @@ const INSTRUCTION_PRESETS = [
       strictXML: true
     },
     updatedAt: '2025-01-14T00:00:00Z'
+  },
+  // Hidden system presets (auto-configured, not shown to users)
+  {
+    id: 'system-planner',
+    label: 'System Planning Model',
+    description: 'Hidden preset for planning mode conversations',
+    instructions: `You are an AI planning assistant. Your role is to help users think through their requirements systematically. Ask thoughtful questions, help refine objectives, and ensure all necessary context is gathered before execution. Be thorough but concise.`,
+    hidden: true,
+    version: '1.0',
+    category: 'system',
+    workflow: {
+      requiresDiscovery: true,
+      autoComplete: false,
+      strictXML: false
+    },
+    updatedAt: '2025-01-17T00:00:00Z'
+  },
+  {
+    id: 'system-executor', 
+    label: 'System Execution Model',
+    description: 'Hidden preset for task execution',
+    instructions: `You are an AI execution assistant. Focus on completing tasks efficiently based on the provided context and requirements. Be direct, action-oriented, and results-focused.`,
+    hidden: true,
+    version: '1.0',
+    category: 'system',
+    workflow: {
+      requiresDiscovery: false,
+      autoComplete: true,
+      strictXML: false
+    },
+    updatedAt: '2025-01-17T00:00:00Z'
   },
   {
     id: 'ai-coder-prompt',
@@ -391,7 +424,7 @@ function getSuggestedModels(presetId, availableModels = []) {
 let runtimeSettings = { ...DEFAULT_SETTINGS };
 
 // Load runtime settings from disk
-async function loadRuntimeSettings() {
+function loadRuntimeSettings() {
   ensureStorageDir();
   if (!fs.existsSync(SETTINGS_FILE)) {
     console.log('[Settings] No persisted settings found, using defaults');
@@ -399,13 +432,25 @@ async function loadRuntimeSettings() {
   }
 
   try {
-    const raw = await fsp.readFile(SETTINGS_FILE, 'utf8');
+    const raw = fs.readFileSync(SETTINGS_FILE, 'utf8');
     const persisted = JSON.parse(raw);
     runtimeSettings = { ...DEFAULT_SETTINGS, ...sanitizeRuntimeSettings(persisted) };
     console.log('[Settings] Loaded persisted settings from disk');
   } catch (error) {
     console.error('[Settings] Failed to load settings from disk:', error);
     console.log('[Settings] Using default settings');
+  }
+}
+
+function applyEnvOverrides() {
+  if (process.env.OLLAMA_HOST) {
+    runtimeSettings.apiEndpoint = withTrailingSlash(process.env.OLLAMA_HOST);
+  }
+  if (process.env.OLLAMA_MODEL) {
+    runtimeSettings.model = process.env.OLLAMA_MODEL;
+  }
+  if (process.env.OLLAMA_MODE) {
+    runtimeSettings.ollamaMode = process.env.OLLAMA_MODE.toLowerCase();
   }
 }
 
@@ -684,6 +729,256 @@ async function persistApiKeys() {
 
 function hashSecret(secret) {
   return crypto.createHash('sha256').update(secret).digest('hex');
+}
+
+/**
+ * Projects (Brain) persistence and normalization
+ * ----------------------------------------------
+ * Projects serve as a central knowledge hub of ideas, notes, instructions, and queries.
+ * They are stored locally in storage/projects.json and may be synced via /api/sync/data.
+ */
+function loadProjectStore() {
+  ensureStorageDir();
+  if (!fs.existsSync(PROJECTS_FILE)) {
+    const empty = { projects: {}, updatedAt: new Date().toISOString() };
+    fs.writeFileSync(PROJECTS_FILE, JSON.stringify(empty, null, 2), 'utf8');
+    return empty;
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(PROJECTS_FILE, 'utf8'));
+    const projects = {};
+    if (parsed && parsed.projects && typeof parsed.projects === 'object') {
+      Object.values(parsed.projects).forEach((p) => {
+        if (!p) return;
+        const normalized = normalizeProject(p);
+        projects[normalized.id] = normalized;
+      });
+    }
+    return {
+      projects,
+      updatedAt: parsed.updatedAt || new Date().toISOString()
+    };
+  } catch (error) {
+    console.error('Failed to parse projects store; regenerating:', error);
+    const empty = { projects: {}, updatedAt: new Date().toISOString() };
+    fs.writeFileSync(PROJECTS_FILE, JSON.stringify(empty, null, 2), 'utf8');
+    return empty;
+  }
+}
+
+let projectStore = loadProjectStore();
+
+async function persistProjects() {
+  ensureStorageDir();
+  const normalized = {};
+  Object.values(projectStore.projects || {}).forEach((p) => {
+    if (!p) return;
+    const clean = normalizeProject(p);
+    normalized[clean.id] = clean;
+  });
+  const payload = {
+    projects: normalized,
+    updatedAt: new Date().toISOString()
+  };
+  await fsp.writeFile(PROJECTS_FILE, JSON.stringify(payload, null, 2), 'utf8');
+  projectStore = payload;
+}
+
+function sanitizeString(value, { maxLen = 200000, fallback = '' } = {}) {
+  const v = typeof value === 'string' ? value : value ? String(value) : '';
+  // Basic XSS protection
+  let sanitized = v.slice(0, maxLen);
+  
+  // Remove potentially dangerous content
+  sanitized = sanitized
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
+    .replace(/javascript:/gi, 'jscript:')
+    .replace(/on\w+\s*=/gi, '') // Remove event handlers
+    .replace(/<\s*(object|embed|form|frame|link|meta|style)\b[^>]*>/gi, ''); // Remove other potentially dangerous tags
+
+  return sanitized || fallback;
+}
+
+// Server-side validation and sanitization functions
+function validateProjectInput(input) {
+  if (!input || typeof input !== 'object') {
+    throw new Error('Invalid project input: must be an object');
+  }
+
+  const validated = {
+    id: input.id || crypto.randomUUID(),
+    name: sanitizeString(input.name, { maxLen: 160, fallback: 'Untitled Project' }),
+    slug: input.slug || sanitizeString(input.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || crypto.randomUUID(),
+    description: sanitizeString(input.description, { maxLen: 5000 }),
+    instructions: sanitizeString(input.instructions, { maxLen: ATTACHMENT_CHAR_LIMIT }),
+    tags: Array.isArray(input.tags) 
+      ? input.tags.map(t => sanitizeString(t, { maxLen: 64 })).slice(0, 50) 
+      : [],
+    notes: Array.isArray(input.notes) 
+      ? input.notes.map(n => validateNoteInput(n)).slice(0, 5000) 
+      : []
+  };
+
+  // Validate name is not empty after sanitization
+  if (!validated.name.trim()) {
+    throw new Error('Project name cannot be empty after sanitization');
+  }
+
+  return validated;
+}
+
+function validateNoteInput(input) {
+  if (!input || typeof input !== 'object') {
+    throw new Error('Invalid note input: must be an object');
+  }
+
+  const now = new Date().toISOString();
+  return {
+    id: input.id || crypto.randomUUID(),
+    type: ['idea', 'instruction', 'query', 'note'].includes((input.type || '').toLowerCase())
+      ? input.type.toLowerCase()
+      : 'note',
+    content: sanitizeString(input.content, { maxLen: ATTACHMENT_CHAR_LIMIT }),
+    tags: Array.isArray(input.tags) 
+      ? input.tags.map(t => sanitizeString(t, { maxLen: 64 })).slice(0, 20) 
+      : [],
+    createdAt: input.createdAt || now,
+    updatedAt: input.updatedAt || now,
+    source: input.source && typeof input.source === 'object'
+      ? {
+          mode: sanitizeString(input.source.mode || '', { maxLen: 32 }),
+          sessionId: sanitizeString(input.source.sessionId || '', { maxLen: 128 }),
+          metadata: input.source.metadata && typeof input.source.metadata === 'object' 
+            ? {
+                ...input.source.metadata,
+                // Remove potentially sensitive metadata
+                apiKey: undefined,
+                token: undefined
+              } 
+            : undefined
+        }
+      : undefined
+  };
+}
+
+function normalizeNote(note) {
+  const now = new Date().toISOString();
+  return {
+    id: note?.id || crypto.randomUUID(),
+    type: ['idea', 'instruction', 'query', 'note'].includes((note?.type || '').toLowerCase())
+      ? (note.type || 'note').toLowerCase()
+      : 'note',
+    content: sanitizeString(note?.content || '', { maxLen: ATTACHMENT_CHAR_LIMIT }),
+    tags: Array.isArray(note?.tags) ? note.tags.map((t) => sanitizeString(t, { maxLen: 64 })).slice(0, 20) : [],
+    createdAt: note?.createdAt || now,
+    updatedAt: note?.updatedAt || now,
+    source: note?.source && typeof note.source === 'object'
+      ? {
+          mode: sanitizeString(note.source.mode || '', { maxLen: 32 }),
+          sessionId: sanitizeString(note.source.sessionId || '', { maxLen: 128 }),
+          metadata: note.source.metadata && typeof note.source.metadata === 'object' ? note.source.metadata : undefined
+        }
+      : undefined
+  };
+}
+
+function normalizeProject(project) {
+  const now = new Date().toISOString();
+  const id = project?.id || crypto.randomUUID();
+  const name = sanitizeString(project?.name || '', { maxLen: 160, fallback: `Project ${id.slice(0, 8)}` });
+  const slug = (project?.slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')) || id;
+  const description = sanitizeString(project?.description || '', { maxLen: 5000 });
+  const instructions = sanitizeString(project?.instructions || '', { maxLen: ATTACHMENT_CHAR_LIMIT });
+  const tags = Array.isArray(project?.tags) ? project.tags.map((t) => sanitizeString(t, { maxLen: 64 })).slice(0, 50) : [];
+  const notes = Array.isArray(project?.notes) ? project.notes.map((n) => normalizeNote(n)).slice(0, 5000) : [];
+  return {
+    id,
+    slug,
+    name,
+    description,
+    instructions,
+    tags,
+    notes,
+    createdAt: project?.createdAt || now,
+    updatedAt: project?.updatedAt || now
+  };
+}
+
+function listProjectsSafe() {
+  return Object.values(projectStore.projects || {}).map((p) => ({
+    id: p.id,
+    slug: p.slug,
+    name: p.name,
+    description: p.description,
+    tags: p.tags,
+    noteCount: Array.isArray(p.notes) ? p.notes.length : 0,
+    createdAt: p.createdAt,
+    updatedAt: p.updatedAt
+  }));
+}
+
+function ensureProject(projectIdOrSlug) {
+  if (!projectIdOrSlug) return null;
+  const byId = projectStore.projects[projectIdOrSlug];
+  if (byId) return normalizeProject(byId);
+  const match = Object.values(projectStore.projects || {}).find((p) => p.slug === projectIdOrSlug);
+  return match ? normalizeProject(match) : null;
+}
+
+// Lightweight semantic scoring based on token overlap + idf weighting
+function tokenize(text) {
+  if (!text) return [];
+  return String(text)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function buildProjectCorpus() {
+  const corpus = [];
+  const docs = Object.values(projectStore.projects || {});
+  docs.forEach((p) => {
+    const parts = [
+      p.name,
+      p.description,
+      p.instructions,
+      Array.isArray(p.tags) ? p.tags.join(' ') : '',
+      Array.isArray(p.notes) ? p.notes.map((n) => n.content).join(' ') : ''
+    ].join('\n');
+    const tokens = tokenize(parts);
+    corpus.push({ id: p.id, tokens, ref: p });
+  });
+  return corpus;
+}
+
+function computeIdf(corpus) {
+  const df = new Map();
+  const totalDocs = corpus.length || 1;
+  corpus.forEach((doc) => {
+    const unique = new Set(doc.tokens);
+    unique.forEach((t) => df.set(t, (df.get(t) || 0) + 1));
+  });
+  const idf = new Map();
+  df.forEach((count, term) => {
+    idf.set(term, Math.log((1 + totalDocs) / (1 + count)) + 1);
+  });
+  return idf;
+}
+
+function scoreDoc(queryTokens, docTokens, idf) {
+  if (!queryTokens.length || !docTokens.length) return 0;
+  const tf = new Map();
+  docTokens.forEach((t) => tf.set(t, (tf.get(t) || 0) + 1));
+  let score = 0;
+  const qset = new Set(queryTokens);
+  qset.forEach((t) => {
+    const f = tf.get(t) || 0;
+    score += f * (idf.get(t) || 0);
+  });
+  return score;
 }
 
 async function createApiKey(name = '') {
@@ -1025,14 +1320,19 @@ function startSseHeartbeat(res, label = 'stream', metadata = {}) {
   const presetInfo = metadata.presetId ? ` preset=${metadata.presetId}` : '';
   const sessionInfo = metadata.sessionId ? ` session=${metadata.sessionId}` : '';
 
-  const timer = setInterval(() => {
+  const writeHeartbeat = () => {
     try {
       res.write(`:heartbeat ${Date.now()}\n\n`);
       res.flush?.();
     } catch (error) {
       console.warn(`[${label}${sessionInfo}${presetInfo}] heartbeat failed: ${error.message}`);
     }
-  }, STREAM_HEARTBEAT_INTERVAL_MS);
+  };
+
+  // Emit an immediate heartbeat so short-lived streams still produce one.
+  writeHeartbeat();
+
+  const timer = setInterval(writeHeartbeat, STREAM_HEARTBEAT_INTERVAL_MS);
 
   timer.unref?.();
 
@@ -1702,12 +2002,50 @@ async function describeWithGoogle(payload, options) {
 
 let visionCacheStore = loadVisionCacheStore();
 
-app.use(cors());
+// Trust reverse proxies (needed for correct IPs and secure headers behind proxies)
+app.set('trust proxy', 1);
+// Remove Express signature
+app.disable('x-powered-by');
+
+// Security headers (keep CSP disabled to avoid blocking inline templates/styles)
+app.use(
+  helmet({
+    contentSecurityPolicy: false
+  })
+);
+
+// Request logging (skip in test to keep output clean)
+if (process.env.NODE_ENV !== 'test') {
+  app.use(morgan('combined'));
+}
+
+// CORS configuration with optional allowlist
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '').split(',').map(o => o.trim()).filter(Boolean);
+const isProduction = process.env.NODE_ENV === 'production';
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true); // Same-origin or curl
+    if (!isProduction || ALLOWED_ORIGINS.length === 0) {
+      return callback(null, true); // Allow all in dev if not configured
+    }
+    if (ALLOWED_ORIGINS.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('CORS not allowed'), false);
+  },
+  credentials: true
+};
+app.use(cors(corsOptions));
+
+// Body parser with explicit size limit
 app.use(
   express.json({
     limit: '20mb'
   })
 );
+
+// Compression for responses
+app.use(compression());
 
 // NO CACHE for CSS and JS - always serve fresh
 app.use((req, res, next) => {
@@ -1721,7 +2059,35 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.static(path.join(__dirnameResolved, 'public')));
+// Static assets with sensible caching
+app.use(
+  express.static(path.join(__dirnameResolved, 'public'), {
+    etag: true,
+    cacheControl: true,
+    setHeaders: (res, filePath) => {
+      // Cache HTML lightly to allow quick updates; cache other assets longer
+      if (filePath.endsWith('.html')) {
+        res.setHeader('Cache-Control', 'public, max-age=60, must-revalidate');
+      } else {
+        res.setHeader('Cache-Control', 'public, max-age=3600, immutable');
+      }
+    }
+  })
+);
+
+// Basic rate limiting for API endpoints (skip localhost/tests)
+const apiLimiter = rateLimit({
+  windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000),
+  max: Number(process.env.RATE_LIMIT_MAX || 100),
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => {
+    if (process.env.RATE_LIMIT_DISABLED === 'true' || process.env.NODE_ENV === 'test') return true;
+    const ip = req.ip || '';
+    return ip === '127.0.0.1' || ip === '::1';
+  }
+});
+app.use('/api', apiLimiter);
 
 function buildPrompt(message, systemInstructions, contextMessages = []) {
   const contextLines = contextMessages
@@ -2227,6 +2593,9 @@ app.post('/api/generate', async (req, res) => {
     }
 
     if (normalizedPayload.stream) {
+      // Apply streaming guards before sending headers
+      releaseStreamingGuards = applyStreamingGuards(req, res, 'api-generate');
+      // SSE headers
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -2234,7 +2603,7 @@ app.post('/api/generate', async (req, res) => {
         'X-Accel-Buffering': 'no'
       });
       res.flushHeaders?.();
-      releaseStreamingGuards = applyStreamingGuards(req, res, 'api-generate');
+      // Start heartbeat (emits an immediate heartbeat)
       stopHeartbeat = startSseHeartbeat(res, 'api-generate', {
         model: normalizedPayload.model
       });
@@ -2411,14 +2780,6 @@ app.post('/api/chat/stream', async (req, res) => {
   const thinkingText = '';
   const startedAt = Date.now();
 
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    Connection: 'keep-alive',
-    'X-Accel-Buffering': 'no'
-  });
-  res.flushHeaders?.();
-
   const upstreamController = new AbortController();
   const releaseClientAbort = bindAbortOnClientDisconnect(req, upstreamController);
   let stopHeartbeat = () => {};
@@ -2426,7 +2787,17 @@ app.post('/api/chat/stream', async (req, res) => {
 
   let latestSplit = safeSplitThinkingSections(thinkingText || '');
   try {
+    // Apply streaming guards before sending headers
     releaseStreamingGuards = applyStreamingGuards(req, res, 'chat-stream');
+    // SSE headers
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no'
+    });
+    res.flushHeaders?.();
+    // Start heartbeat (emits an immediate heartbeat)
     stopHeartbeat = startSseHeartbeat(res, 'chat-stream', {
       sessionId: session.id,
       presetId: session.presetId,
@@ -2740,7 +3111,8 @@ app.get('/api/settings', (req, res) => {
   return res.json({
     defaults: DEFAULT_SETTINGS,
     current: runtimeSettings,
-    presets: INSTRUCTION_PRESETS
+    // Filter out hidden system presets from user-visible list
+    presets: INSTRUCTION_PRESETS.filter(p => !p.hidden)
   });
 });
 
@@ -3240,6 +3612,7 @@ app.get('/api/sync/data', async (req, res) => {
       activeSessionId: sessionStore.activeSessionId,
       settings: runtimeSettings,
       apiKeyStore: apiKeyStore,
+      projects: projectStore.projects,
       timestamp: new Date().toISOString()
     };
 
@@ -3258,7 +3631,7 @@ app.post('/api/sync/data', async (req, res) => {
     return res.status(401).json({ error: 'Invalid API key' });
   }
 
-  const { sessions, activeSessionId, settings, apiKeyStore } = req.body || {};
+  const { sessions, activeSessionId, settings, apiKeyStore, projects } = req.body || {};
 
   try {
     // Update the in-memory stores with the synced data
@@ -3277,6 +3650,16 @@ app.post('/api/sync/data', async (req, res) => {
           updatedAt: incoming.updatedAt || existing.updatedAt
         };
       });
+    }
+    if (projects && typeof projects === 'object') {
+      // Merge incoming projects into local store
+      const incomingEntries = Object.values(projects);
+      incomingEntries.forEach((p) => {
+        if (!p) return;
+        const normalized = normalizeProject(p);
+        projectStore.projects[normalized.id] = normalized;
+      });
+      await persistProjects();
     }
     if (activeSessionId) {
       sessionStore.activeSessionId = activeSessionId;
@@ -3314,6 +3697,496 @@ app.post('/api/sync/data', async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ error: error.message || 'Failed to sync data' });
+  }
+});
+
+/**
+ * Projects (Brain) API
+ */
+app.get('/api/projects', (req, res) => {
+  try {
+    return res.json({
+      projects: listProjectsSafe(),
+      count: Object.keys(projectStore.projects || {}).length,
+      updatedAt: projectStore.updatedAt
+    });
+  } catch (error) {
+    console.error('[Projects] List error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to list projects' });
+  }
+});
+
+app.post('/api/projects', async (req, res) => {
+  try {
+    // Validate and sanitize input
+    const validatedProject = validateProjectInput({
+      id: crypto.randomUUID(),
+      name: req.body?.name,
+      description: req.body?.description,
+      instructions: req.body?.instructions,
+      tags: req.body?.tags
+    });
+
+    // Create project with validation
+    const project = normalizeProject(validatedProject);
+    projectStore.projects[project.id] = project;
+    await persistProjects();
+
+    // Return only safe project data
+    const safeProject = {
+      id: project.id,
+      slug: project.slug,
+      name: project.name,
+      description: project.description,
+      tags: project.tags,
+      noteCount: project.notes.length,
+      createdAt: project.createdAt,
+      updatedAt: project.updatedAt
+    };
+
+    return res.status(201).json(safeProject);
+  } catch (error) {
+    console.error('[Projects] Create error:', error);
+    return res.status(400).json({ error: error.message || 'Failed to create project' });
+  }
+});
+
+app.get('/api/projects/:id', (req, res) => {
+  try {
+    const project = ensureProject(req.params.id);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    // Return only safe project data
+    const safeProject = {
+      id: project.id,
+      slug: project.slug,
+      name: project.name,
+      description: project.description,
+      instructions: project.instructions,
+      tags: project.tags,
+      notes: project.notes.map(note => ({
+        id: note.id,
+        type: note.type,
+        content: note.content,
+        tags: note.tags,
+        createdAt: note.createdAt,
+        updatedAt: note.updatedAt,
+        source: note.source
+      })),
+      createdAt: project.createdAt,
+      updatedAt: project.updatedAt
+    };
+
+    return res.json(safeProject);
+  } catch (error) {
+    console.error('[Projects] Get error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to fetch project' });
+  }
+});
+
+app.put('/api/projects/:id', async (req, res) => {
+  try {
+    const existing = ensureProject(req.params.id);
+    if (!existing) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    // Validate and sanitize input
+    const validatedProject = validateProjectInput({
+      ...existing,
+      name: req.body?.name !== undefined ? req.body.name : existing.name,
+      description: req.body?.description !== undefined ? req.body.description : existing.description,
+      instructions: req.body?.instructions !== undefined ? req.body.instructions : existing.instructions,
+      tags: req.body?.tags !== undefined ? req.body.tags : existing.tags
+    });
+
+    const next = normalizeProject({
+      ...validatedProject,
+      updatedAt: new Date().toISOString()
+    });
+
+    projectStore.projects[next.id] = next;
+    await persistProjects();
+
+    // Return only safe project data
+    const safeProject = {
+      id: next.id,
+      slug: next.slug,
+      name: next.name,
+      description: next.description,
+      tags: next.tags,
+      noteCount: next.notes.length,
+      createdAt: next.createdAt,
+      updatedAt: next.updatedAt
+    };
+
+    return res.json(safeProject);
+  } catch (error) {
+    console.error('[Projects] Update error:', error);
+    return res.status(400).json({ error: error.message || 'Failed to update project' });
+  }
+});
+
+app.delete('/api/projects/:id', async (req, res) => {
+  try {
+    const idOrSlug = req.params.id;
+    const existing = ensureProject(idOrSlug);
+    if (!existing) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    // Remove project
+    delete projectStore.projects[existing.id];
+    await persistProjects();
+
+    return res.status(204).end();
+  } catch (error) {
+    console.error('[Projects] Delete error:', error);
+    return res.status(400).json({ error: error.message || 'Failed to delete project' });
+  }
+});
+
+app.post('/api/projects/:id/notes', async (req, res) => {
+  try {
+    const project = ensureProject(req.params.id);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    // Validate and sanitize note
+    const validatedNote = validateNoteInput({
+      type: req.body?.type,
+      content: req.body?.content,
+      tags: req.body?.tags,
+      source: req.body?.source
+    });
+
+    const note = normalizeNote(validatedNote);
+    const updated = { 
+      ...project, 
+      notes: [...(project.notes || []), note], 
+      updatedAt: new Date().toISOString() 
+    };
+    projectStore.projects[project.id] = updated;
+    await persistProjects();
+
+    // Return only safe note data
+    const safeNote = {
+      id: note.id,
+      type: note.type,
+      tags: note.tags,
+      content: note.content,
+      createdAt: note.createdAt,
+      updatedAt: note.updatedAt
+    };
+
+    return res.status(201).json({ projectId: project.id, note: safeNote });
+  } catch (error) {
+    console.error('[Projects] Add note error:', error);
+    return res.status(400).json({ error: error.message || 'Failed to add note' });
+  }
+});
+
+app.put('/api/projects/:id/notes/:noteId', async (req, res) => {
+  try {
+    const project = ensureProject(req.params.id);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const idx = (project.notes || []).findIndex((n) => n.id === req.params.noteId);
+    if (idx === -1) return res.status(404).json({ error: 'Note not found' });
+
+    const existing = project.notes[idx];
+
+    // Validate and sanitize note
+    const validatedNote = validateNoteInput({
+      ...existing,
+      type: req.body?.type !== undefined ? req.body.type : existing.type,
+      content: req.body?.content !== undefined ? req.body.content : existing.content,
+      tags: req.body?.tags !== undefined ? req.body.tags : existing.tags
+    });
+
+    const updatedNote = normalizeNote({
+      ...validatedNote,
+      updatedAt: new Date().toISOString()
+    });
+
+    const next = { 
+      ...project, 
+      notes: [...project.notes.slice(0, idx), updatedNote, ...project.notes.slice(idx + 1)], 
+      updatedAt: new Date().toISOString() 
+    };
+    projectStore.projects[project.id] = next;
+    await persistProjects();
+
+    // Return only safe note data
+    const safeNote = {
+      id: updatedNote.id,
+      type: updatedNote.type,
+      tags: updatedNote.tags,
+      content: updatedNote.content,
+      createdAt: updatedNote.createdAt,
+      updatedAt: updatedNote.updatedAt
+    };
+
+    return res.json({ projectId: project.id, note: safeNote });
+  } catch (error) {
+    console.error('[Projects] Update note error:', error);
+    return res.status(400).json({ error: error.message || 'Failed to update note' });
+  }
+});
+
+app.delete('/api/projects/:id/notes/:noteId', async (req, res) => {
+  try {
+    const project = ensureProject(req.params.id);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const nextNotes = (project.notes || []).filter((n) => n.id !== req.params.noteId);
+    if (nextNotes.length === (project.notes || []).length) {
+      return res.status(404).json({ error: 'Note not found' });
+    }
+
+    const next = { ...project, notes: nextNotes, updatedAt: new Date().toISOString() };
+    projectStore.projects[project.id] = next;
+    await persistProjects();
+
+    return res.status(204).end();
+  } catch (error) {
+    console.error('[Projects] Delete note error:', error);
+    return res.status(400).json({ error: error.message || 'Failed to delete note' });
+  }
+});
+
+app.get('/api/projects/backup', (req, res) => {
+  try {
+    return res.json({
+      projects: projectStore.projects,
+      updatedAt: projectStore.updatedAt,
+      exportedAt: new Date().toISOString()
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message || 'Failed to export projects' });
+  }
+});
+
+app.post('/api/projects/restore', async (req, res) => {
+  try {
+    if (!req.body || typeof req.body !== 'object' || typeof req.body.projects !== 'object') {
+      return res.status(400).json({ error: 'Missing or invalid projects payload' });
+    }
+    // Backup current
+    try {
+      const backupPath = path.join(STORAGE_DIR, `projects.backup-${Date.now()}.json`);
+      await fsp.writeFile(backupPath, JSON.stringify(projectStore, null, 2), 'utf8');
+    } catch (e) {
+      console.warn('[Projects] Failed to write backup:', e.message);
+    }
+    const next = { projects: {}, updatedAt: new Date().toISOString() };
+    Object.values(req.body.projects).forEach((p) => {
+      const normalized = normalizeProject(p);
+      next.projects[normalized.id] = normalized;
+    });
+    projectStore = next;
+    await persistProjects();
+    return res.json({ success: true, count: Object.keys(projectStore.projects).length });
+  } catch (error) {
+    return res.status(500).json({ error: error.message || 'Failed to restore projects' });
+  }
+});
+
+app.post('/api/projects/search', (req, res) => {
+  try {
+    const query = sanitizeString(req.body?.query || '', { maxLen: 2000 });
+    const limit = Math.max(1, Math.min(50, Number(req.body?.limit || 10)));
+    const projectId = req.body?.projectId ? sanitizeString(req.body.projectId, { maxLen: 256 }) : null;
+    if (!query) {
+      return res.status(400).json({ error: 'Query is required' });
+    }
+    const qTokens = tokenize(query).filter(Boolean);
+    const results = [];
+    if (projectId) {
+      const project = ensureProject(projectId);
+      if (!project) return res.status(404).json({ error: 'Project not found' });
+      const notes = project.notes || [];
+      const noteDocs = notes.map((n) => ({ id: n.id, tokens: tokenize(n.content || ''), ref: n }));
+      const idf = computeIdf(noteDocs);
+      noteDocs.forEach((doc) => {
+        const s = scoreDoc(qTokens, doc.tokens, idf);
+        if (s > 0) {
+          results.push({
+            projectId: project.id,
+            projectName: project.name,
+            noteId: doc.id,
+            score: Number(s.toFixed(6)),
+            snippet: (doc.ref.content || '').slice(0, 500)
+          });
+        }
+      });
+    } else {
+      const corpus = buildProjectCorpus();
+      const idf = computeIdf(corpus);
+      corpus.forEach((doc) => {
+        const s = scoreDoc(qTokens, doc.tokens, idf);
+        if (s > 0) {
+          results.push({
+            projectId: doc.id,
+            projectName: doc.ref.name,
+            score: Number(s.toFixed(6)),
+            snippet: (doc.ref.description || doc.ref.instructions || '').slice(0, 500)
+          });
+        }
+      });
+    }
+    results.sort((a, b) => b.score - a.score);
+    return res.json({ query, results: results.slice(0, limit) });
+  } catch (error) {
+    return res.status(500).json({ error: error.message || 'Search failed' });
+  }
+});
+
+function buildLocalBrainPrompt(input, contextNotes) {
+  const context = (contextNotes || []).map((n, i) => `- (${i + 1}) ${n.content}`).join('\n');
+  return [
+    '<response>',
+    '  <role>Prompt Engineer for AI Coder</role>',
+    '  <context>',
+    escapeXml(input || ''),
+    '  </context>',
+    '  <knowledge>',
+    escapeXml(context),
+    '  </knowledge>',
+    '  <goal>Produce a complete, ready-to-run XML prompt for the coder.</goal>',
+    '  <objectives>',
+    '    <item>Discovery first, then execution, verification, reporting.</item>',
+    '    <item>No questions or pauses; assume ownership.</item>',
+    '  </objectives>',
+    '  <discovery><step>Catalog files, scan repo, identify integration points.</step></discovery>',
+    '  <execution><step>Implement feature with clear edits and tests.</step></execution>',
+    '  <verification><check>Run tests, verify endpoints and UI.</check></verification>',
+    '  <reporting><summary>Summarize shipped changes and impacts.</summary></reporting>',
+    '  <notes>Follow code style and safety rules.</notes>',
+    '</response>'
+  ].join('\n');
+}
+
+function escapeXml(text) {
+  return String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+app.post('/api/brain/prompt', async (req, res) => {
+  try {
+    const input = sanitizeString(req.body?.input || '', { maxLen: 20000 });
+    const projectId = req.body?.projectId ? sanitizeString(req.body.projectId, { maxLen: 256 }) : null;
+    if (!input) {
+      return res.status(400).json({ error: 'Input is required' });
+    }
+
+    // Validate input for potentially dangerous content
+    if (input.toLowerCase().includes('system') && input.toLowerCase().includes('password')) {
+      console.warn('[Brain] Potential security query detected:', input.substring(0, 100));
+      return res.status(400).json({ error: 'Invalid request: potentially dangerous content detected' });
+    }
+
+    // Collect context (top 8 notes)
+    let candidateNotes = [];
+    if (projectId) {
+      const project = ensureProject(projectId);
+      if (!project) return res.status(404).json({ error: 'Project not found' });
+      candidateNotes = (project.notes || []).slice(-200);
+    } else {
+      Object.values(projectStore.projects || {}).forEach((p) => {
+        if (p.notes && Array.isArray(p.notes)) {
+          p.notes.forEach((n) => candidateNotes.push(n));
+        }
+      });
+      candidateNotes = candidateNotes.slice(-500);
+    }
+
+    // Score notes by overlap with input
+    const qTokens = tokenize(input);
+    const docs = candidateNotes.map((n) => ({ 
+      id: n.id, 
+      tokens: tokenize(n.content || ''), 
+      ref: {
+        id: n.id,
+        type: n.type,
+        content: n.content, // Already sanitized
+        tags: n.tags,
+        createdAt: n.createdAt,
+        updatedAt: n.updatedAt
+      }
+    }));
+    const idf = computeIdf(docs);
+    const ranked = docs
+      .map((d) => ({ note: d.ref, score: scoreDoc(qTokens, d.tokens, idf) }))
+      .filter((e) => e.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 8)
+      .map((e) => e.note);
+
+    // Try Ollama refine if reachable
+    const endpoint = withTrailingSlash(runtimeSettings.apiEndpoint);
+    let finalPrompt = null;
+    let usedModel = runtimeSettings.model;
+    let processingError = null;
+    
+    try {
+      await ensureOllamaReachable(endpoint);
+      const composed = [
+        AI_CODER_PROMPT_PRESET,
+        '\n\n<request>\n',
+        input,
+        '\n</request>\n',
+        ranked.length ? '<context-notes>\n' + ranked.map((n, i) => `(${i + 1}) ${n.content}`).join('\n') + '\n</context-notes>\n' : ''
+      ].join('');
+      
+      const upstream = await httpFetch(`${endpoint}api/generate`, {
+        method: 'POST',
+        headers: getOllamaHeaders(),
+        timeout: OLLAMA_GENERATION_TIMEOUT_MS,
+        body: JSON.stringify({
+          model: usedModel,
+          prompt: composed,
+          stream: false
+        })
+      });
+      
+      if (!upstream.ok) {
+        processingError = `Ollama error: ${upstream.status}`;
+        console.warn('[Brain] Ollama processing error:', processingError);
+      } else {
+        const data = await upstream.json();
+        finalPrompt = data?.response || data?.prompt || null;
+      }
+    } catch (error) {
+      processingError = error.message;
+      console.warn('[Brain] Processing error:', error.message);
+    }
+
+    // Fallback to local prompt composer if remote processing failed
+    if (!finalPrompt) {
+      console.info('[Brain] Using local prompt composer due to processing error:', processingError);
+      finalPrompt = buildLocalBrainPrompt(input, ranked);
+    }
+
+    return res.json({
+      prompt: finalPrompt,
+      contextNotes: ranked.map((n) => ({ 
+        id: n.id, 
+        type: n.type,
+        preview: (n.content || '').slice(0, 140),
+        tags: n.tags
+      })),
+      model: usedModel,
+      processingError: processingError ? processingError : undefined
+    });
+  } catch (error) {
+    console.error('[Brain] Prompt generation error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to generate prompt' });
   }
 });
 
@@ -3481,10 +4354,10 @@ app.get(/^(?!\/api).*/, (req, res) => {
   res.sendFile(path.join(__dirnameResolved, 'public', 'index.html'));
 });
 
-async function startServer(port = PORT) {
-  // Load persisted settings before starting server
-  await loadRuntimeSettings();
-  
+function startServer(port = PORT) {
+  loadRuntimeSettings();
+  applyEnvOverrides();
+
   const listener = app.listen(port, () => {
     console.log(`Server running on http://localhost:${port}`);
     console.log('Server started successfully with /api/generate endpoint now available');
@@ -3493,11 +4366,41 @@ async function startServer(port = PORT) {
 }
 
 if (require.main === module) {
-  startServer().catch(error => {
-    console.error('Failed to start server:', error);
-    process.exit(1);
-  });
+  const startResult = startServer();
+  if (startResult && typeof startResult.then === 'function') {
+    startResult.catch(error => {
+      console.error('Failed to start server:', error);
+      process.exit(1);
+    });
+  }
 }
+
+// Global error handler (last)
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  try {
+    const status = Number(err.status || err.statusCode || 500);
+    const message = err.expose ? String(err.message || 'Request failed') : 'Internal server error';
+    console.error('[Error]', {
+      path: req?.path,
+      method: req?.method,
+      status,
+      message: err?.message
+    });
+    if (!res.headersSent) {
+      res.status(status).json({ error: message });
+    } else {
+      res.end();
+    }
+  } catch (e) {
+    // Fallback to avoid throwing within error handler
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Internal server error' });
+    } else {
+      res.end();
+    }
+  }
+});
 
 module.exports = { app, startServer };
 

@@ -56,6 +56,7 @@ const defaultPages = [
   { id: 'home', label: 'Home', type: 'component', template: 'home-page' },
   { id: 'chat', label: 'Chat', type: 'component', template: 'chat-page', hidden: true },
   { id: 'planning', label: 'Planning', type: 'component', template: 'planning-page', hidden: true },
+  { id: 'projects', label: 'Projects', type: 'component', template: 'projects-page' },
   { id: 'settings', label: 'Settings', type: 'component', template: 'settings-page' }
 ];
 
@@ -431,6 +432,14 @@ const state = {
       draftData: null,
       isLocked: false
     }
+  },
+
+  // Projects (Brain) module state
+  projects: [],
+  activeProjectId: null,
+  brain: {
+    lastPrompt: '',
+    lastContextNotes: []
   }
 };
 
@@ -453,9 +462,770 @@ if (typeof window !== 'undefined') {
 // Global navigation function for back buttons
 window.navigateToPage = function(pageId) {
   state.currentPage = pageId;
+  if (pageId === 'planning') {
+    state.currentMode = 'planning';
+  } else if (pageId === 'chat') {
+    state.currentMode = 'instant';
+  }
   renderNav();
   renderPage(pageId);
+  updateModeIndicator();
 };
+
+// ==================== PROJECTS (BRAIN) MODULE ====================
+
+function getProjectById(id) {
+  return state.projects.find((p) => p.id === id) || null;
+}
+
+async function loadProjects(options = {}) {
+  try {
+    const data = await fetchJson('/api/projects', { method: 'GET' });
+    state.projects = Array.isArray(data.projects) ? data.projects : [];
+    if (!state.activeProjectId && state.projects.length > 0) {
+      state.activeProjectId = state.projects[0].id;
+    }
+  } catch (error) {
+    console.error('[Projects] Failed to load projects:', error);
+    showNotification('Failed to load projects', 'error');
+  } finally {
+    if (!options.skipRender && state.currentPage === 'projects') {
+      renderProjectsPage();
+    }
+  }
+}
+
+async function ensureActiveProject() {
+  if (state.activeProjectId && getProjectById(state.activeProjectId)) {
+    return state.activeProjectId;
+  }
+  try {
+    const created = await fetchJson('/api/projects', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'Brain',
+        description: 'Central knowledge hub',
+        tags: ['brain', 'default']
+      })
+    });
+    state.projects.unshift(created);
+    state.activeProjectId = created.id;
+    return created.id;
+  } catch (error) {
+    console.error('[Projects] Failed to create default project:', error);
+    showNotification('Failed to create default project', 'error');
+    return null;
+  }
+}
+
+function parseTags(inputValue) {
+  return String(inputValue || '')
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .slice(0, 50);
+}
+
+function renderProjectsList() {
+  const list = document.getElementById('projects-list');
+  if (!list) return;
+  list.innerHTML = '';
+  const projects = state.projects || [];
+  if (!projects.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'No projects yet. Click "New Project" to create one.';
+    list.appendChild(empty);
+    return;
+  }
+  projects
+    .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''))
+    .forEach((p) => {
+      const item = document.createElement('button');
+      item.className = 'sidebar-item';
+      if (p.id === state.activeProjectId) item.classList.add('active');
+      item.textContent = p.name || p.slug || p.id;
+      item.addEventListener('click', () => {
+        state.activeProjectId = p.id;
+        renderProjectsPage();
+      });
+      list.appendChild(item);
+    });
+}
+
+function fillProjectEditor(project) {
+  const nameEl = document.getElementById('project-name-input');
+  const descEl = document.getElementById('project-desc-input');
+  const instrEl = document.getElementById('project-instr-input');
+  const tagsEl = document.getElementById('project-tags-input');
+  if (!nameEl || !descEl || !instrEl || !tagsEl) return;
+  if (!project) {
+    nameEl.value = '';
+    descEl.value = '';
+    instrEl.value = '';
+    tagsEl.value = '';
+    return;
+  }
+  nameEl.value = project.name || '';
+  descEl.value = project.description || '';
+  instrEl.value = project.instructions || '';
+  tagsEl.value = (project.tags || []).join(', ');
+}
+
+function renderNotesList(project) {
+  const container = document.getElementById('notes-list');
+  if (!container) return;
+  container.innerHTML = '';
+  if (!project) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'Select or create a project to add notes.';
+    container.appendChild(empty);
+    return;
+  }
+  const notes = Array.isArray(project.notes) ? project.notes : [];
+  if (!notes.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'No notes yet. Add your first idea, instruction, or query.';
+    container.appendChild(empty);
+    return;
+  }
+  notes
+    .slice()
+    .reverse()
+    .forEach((n) => {
+      const row = document.createElement('div');
+      row.className = 'list-item';
+      const left = document.createElement('div');
+      left.className = 'list-item-content';
+      const title = document.createElement('div');
+      title.className = 'list-item-title';
+      title.textContent = `[${n.type}] ${((n.tags || [])[0] ? `#${n.tags[0]} ` : '')}${(n.content || '').slice(0, 80)}`;
+      const body = document.createElement('div');
+      body.className = 'list-item-subtitle';
+      body.textContent = (n.content || '').slice(0, 240);
+      left.appendChild(title);
+      left.appendChild(body);
+      const actions = document.createElement('div');
+      actions.className = 'list-item-actions';
+      const del = document.createElement('button');
+      del.className = 'btn danger';
+      del.textContent = 'Delete';
+      del.addEventListener('click', async () => {
+        try {
+          await fetchJson(`/api/projects/${project.id}/notes/${n.id}`, { method: 'DELETE' });
+          const fresh = await fetchJson(`/api/projects/${project.id}`, { method: 'GET' });
+          const idx = state.projects.findIndex((p) => p.id === project.id);
+          if (idx !== -1) state.projects[idx] = fresh;
+          renderProjectsPage();
+          showNotification('Note deleted', 'success');
+        } catch (error) {
+          console.error('[Projects] Delete note failed:', error);
+          showNotification('Failed to delete note', 'error');
+        }
+      });
+      actions.appendChild(del);
+      row.appendChild(left);
+      row.appendChild(actions);
+      container.appendChild(row);
+    });
+}
+
+async function handleProjectSave() {
+  const projectId = state.activeProjectId;
+  const name = document.getElementById('project-name-input')?.value || '';
+  const description = document.getElementById('project-desc-input')?.value || '';
+  const instructions = document.getElementById('project-instr-input')?.value || '';
+  const tags = parseTags(document.getElementById('project-tags-input')?.value || '');
+  try {
+    if (projectId && getProjectById(projectId)) {
+      const updated = await fetchJson(`/api/projects/${projectId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name, description, instructions, tags })
+      });
+      const idx = state.projects.findIndex((p) => p.id === projectId);
+      if (idx !== -1) state.projects[idx] = updated;
+      showNotification('Project saved', 'success');
+    } else {
+      const created = await fetchJson('/api/projects', {
+        method: 'POST',
+        body: JSON.stringify({ name, description, tags, instructions })
+      });
+      state.projects.unshift(created);
+      state.activeProjectId = created.id;
+      showNotification('Project created', 'success');
+    }
+    renderProjectsPage();
+  } catch (error) {
+    console.error('[Projects] Save failed:', error);
+    showNotification('Failed to save project', 'error');
+  }
+}
+
+async function handleProjectDelete() {
+  const projectId = state.activeProjectId;
+  if (!projectId) return;
+  try {
+    await fetchJson(`/api/projects/${projectId}`, { method: 'DELETE' });
+    state.projects = state.projects.filter((p) => p.id !== projectId);
+    state.activeProjectId = state.projects[0]?.id || null;
+    renderProjectsPage();
+    showNotification('Project deleted', 'success');
+  } catch (error) {
+    console.error('[Projects] Delete failed:', error);
+    showNotification('Failed to delete project', 'error');
+  }
+}
+
+async function handleAddNote() {
+  const projectId = await ensureActiveProject();
+  if (!projectId) return;
+  const type = document.getElementById('note-type-select')?.value || 'note';
+  const content = document.getElementById('note-content-input')?.value || '';
+  const tags = parseTags(document.getElementById('note-tags-input')?.value || '');
+  if (!content.trim()) {
+    showNotification('Note content is required', 'warning');
+    return;
+  }
+  try {
+    const result = await fetchJson(`/api/projects/${projectId}/notes`, {
+      method: 'POST',
+      body: JSON.stringify({
+        type,
+        content,
+        tags,
+        source: {
+          mode: state.currentMode,
+          sessionId: state.activeSessionId
+        }
+      })
+    });
+    const fresh = await fetchJson(`/api/projects/${projectId}`, { method: 'GET' });
+    const idx = state.projects.findIndex((p) => p.id === projectId);
+    if (idx !== -1) state.projects[idx] = fresh;
+    const cEl = document.getElementById('note-content-input');
+    const tEl = document.getElementById('note-tags-input');
+    if (cEl) cEl.value = '';
+    if (tEl) tEl.value = '';
+    renderProjectsPage();
+    showNotification('Note added', 'success');
+    return result;
+  } catch (error) {
+    console.error('[Projects] Add note failed:', error);
+    showNotification('Failed to add note', 'error');
+    return null;
+  }
+}
+
+async function handleSearchNotes() {
+  const inputEl = document.getElementById('project-search-input');
+  const container = document.getElementById('notes-list');
+  if (!inputEl || !container) return;
+  const query = inputEl.value.trim();
+  if (!query) {
+    renderProjectsPage();
+    return;
+  }
+  try {
+    const projectId = state.activeProjectId;
+    const resp = await fetchJson('/api/projects/search', {
+      method: 'POST',
+      body: JSON.stringify({ query, projectId })
+    });
+    const results = Array.isArray(resp.results) ? resp.results : [];
+    const resultBlock = document.createElement('div');
+    resultBlock.className = 'panel search-results';
+    const header = document.createElement('div');
+    header.className = 'panel-header';
+    header.innerHTML = `<h3>Search Results (${results.length})</h3>`;
+    const body = document.createElement('div');
+    body.className = 'panel-body';
+    results.forEach((r) => {
+      const item = document.createElement('div');
+      item.className = 'list-item';
+      const left = document.createElement('div');
+      left.className = 'list-item-content';
+      const title = document.createElement('div');
+      title.className = 'list-item-title';
+      title.textContent = `${r.projectName || 'Project'} — score ${r.score}`;
+      const sub = document.createElement('div');
+      sub.className = 'list-item-subtitle';
+      sub.textContent = r.snippet || '';
+      left.appendChild(title);
+      left.appendChild(sub);
+      item.appendChild(left);
+      item.addEventListener('click', () => {
+        if (r.projectId) {
+          state.activeProjectId = r.projectId;
+          renderProjectsPage();
+        }
+      });
+      body.appendChild(item);
+    });
+    container.innerHTML = '';
+    container.appendChild(resultBlock);
+  } catch (error) {
+    console.error('[Projects] Search failed:', error);
+    showNotification('Search failed', 'error');
+  }
+}
+
+async function handleBrainGenerate() {
+  const input = document.getElementById('brain-input')?.value || '';
+  const output = document.getElementById('brain-output');
+  if (!input.trim()) {
+    showNotification('Enter an idea or plan to generate a prompt', 'warning');
+    return;
+  }
+  try {
+    const resp = await fetchJson('/api/brain/prompt', {
+      method: 'POST',
+      body: JSON.stringify({
+        input,
+        projectId: state.activeProjectId || undefined
+      })
+    });
+    state.brain.lastPrompt = resp.prompt || '';
+    state.brain.lastContextNotes = resp.contextNotes || [];
+    if (output) output.value = state.brain.lastPrompt;
+    showNotification('Prompt generated', 'success');
+  } catch (error) {
+    console.error('[Brain] Prompt generation failed:', error);
+    showNotification('Failed to generate prompt', 'error');
+  }
+}
+
+async function handleBrainCopy() {
+  const output = document.getElementById('brain-output');
+  if (!output || !output.value) return;
+  try {
+    await navigator.clipboard.writeText(output.value);
+    showNotification('Prompt copied to clipboard', 'success');
+  } catch {
+    showNotification('Failed to copy prompt', 'error');
+  }
+}
+
+function setChatInputValue(text) {
+  state.currentPage = 'chat';
+  renderPage('chat');
+  setTimeout(() => {
+    const input = document.getElementById('chat-input');
+    if (input) {
+      input.value = text || '';
+      input.focus();
+    }
+  }, 0);
+}
+
+function handleBrainSendToInstant() {
+  const output = document.getElementById('brain-output');
+  if (!output || !output.value) {
+    showNotification('No prompt to send', 'warning');
+    return;
+  }
+  setChatInputValue(output.value);
+  showNotification('Prompt placed into Instant chat', 'success');
+}
+
+// Integration function to capture ideas from Instant/Planning to Projects
+async function captureIdeaFromMode(content, options = {}) {
+  try {
+    const projectId = await ensureActiveProject();
+    if (!projectId || !content || !content.trim()) {
+      return null;
+    }
+
+    const result = await fetchJson(`/api/projects/${projectId}/notes`, {
+      method: 'POST',
+      body: JSON.stringify({
+        type: options.type || 'idea',
+        content: content.trim(),
+        tags: options.tags || [],
+        source: {
+          mode: state.currentMode || 'instant',
+          sessionId: state.activeSessionId,
+          timestamp: new Date().toISOString()
+        }
+      })
+    });
+
+    // Update local state
+    const fresh = await fetchJson(`/api/projects/${projectId}`, { method: 'GET' });
+    const idx = state.projects.findIndex((p) => p.id === projectId);
+    if (idx !== -1) {
+      state.projects[idx] = fresh;
+    }
+
+    // Show success notification
+    if (typeof showNotification === 'function') {
+      showNotification('Idea captured to Projects', 'success');
+    }
+
+    return result;
+  } catch (error) {
+    console.error('[Brain] Capture from mode failed:', error);
+    if (typeof showNotification === 'function') {
+      showNotification('Failed to capture idea', 'error');
+    }
+    return null;
+  }
+}
+
+// Function to send content from other modes to the Brain
+async function sendToBrainGenerator(content) {
+  if (!content || !content.trim()) {
+    if (typeof showNotification === 'function') {
+      showNotification('No content to process', 'warning');
+    }
+    return;
+  }
+
+  try {
+    // Switch to projects page
+    state.currentPage = 'projects';
+    renderPage('projects');
+    
+    // Wait for page to load
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    // Fill the brain input
+    const brainInput = document.getElementById('brain-input');
+    if (brainInput) {
+      brainInput.value = content.trim();
+    }
+    
+    // Generate the prompt
+    await handleBrainGenerate();
+    
+    // Show success
+    if (typeof showNotification === 'function') {
+      showNotification('Content sent to Brain for processing', 'success');
+    }
+  } catch (error) {
+    console.error('[Brain] Send to generator failed:', error);
+    if (typeof showNotification === 'function') {
+      showNotification('Failed to send to Brain', 'error');
+    }
+  }
+}
+
+// Enhanced integration functions
+function addBrainIntegrationToChat() {
+  // Add a button to capture current chat context to projects
+  const chatInput = document.getElementById('chat-input');
+  if (!chatInput) return;
+
+  // Add event listener for a special keyboard shortcut
+  chatInput.addEventListener('keydown', (e) => {
+    // Ctrl+Shift+S to send selection to projects
+    if (e.ctrlKey && e.shiftKey && e.key === 'S') {
+      e.preventDefault();
+      const selectedText = window.getSelection?.()?.toString()?.trim();
+      if (selectedText) {
+        captureIdeaFromMode(selectedText, { type: 'note', tags: ['from-chat'] });
+      }
+    }
+  });
+
+  // Add context menu or button to send current input to brain
+  const sendBtn = document.getElementById('send-btn');
+  if (sendBtn) {
+    // Create a secondary button for brain processing
+    const brainBtn = document.createElement('button');
+    brainBtn.className = 'attach-button';
+    brainBtn.title = 'Send to AI Brain for refinement';
+    brainBtn.innerHTML = `🧠`;
+    brainBtn.addEventListener('click', async () => {
+      const input = document.getElementById('chat-input');
+      if (input && input.value.trim()) {
+        await sendToBrainGenerator(input.value);
+      }
+    });
+
+    // Insert the brain button before the send button
+    const inputBox = document.querySelector('.input-box') || sendBtn.closest('.input-box');
+    if (inputBox) {
+      inputBox.insertBefore(brainBtn, sendBtn);
+    }
+  }
+}
+
+// Add integration to planning mode as well
+function addBrainIntegrationToPlanning() {
+  const planningInput = document.getElementById('planning-input');
+  if (!planningInput) return;
+
+  planningInput.addEventListener('keydown', (e) => {
+    // Ctrl+Shift+S to capture selection
+    if (e.ctrlKey && e.shiftKey && e.key === 'S') {
+      e.preventDefault();
+      const selectedText = window.getSelection?.()?.toString()?.trim();
+      if (selectedText) {
+        captureIdeaFromMode(selectedText, { type: 'note', tags: ['from-planning'] });
+      }
+    }
+  });
+}
+
+async function handleProjectsExport() {
+  try {
+    const data = await fetchJson('/api/projects/backup', { method: 'GET' });
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const stamp = new Date().toISOString().split('T')[0];
+    a.download = `projects-backup-${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 0);
+  } catch (error) {
+    console.error('[Projects] Export failed:', error);
+    showNotification('Export failed', 'error');
+  }
+}
+
+async function handleProjectsImport(file) {
+  try {
+    const text = await readFileAsText(file);
+    const payload = JSON.parse(text);
+    await fetchJson('/api/projects/restore', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    await loadProjects({ skipRender: true });
+    renderProjectsPage();
+    showNotification('Projects restored', 'success');
+  } catch (error) {
+    console.error('[Projects] Import failed:', error);
+    showNotification('Import failed', 'error');
+  }
+}
+
+function renderProjectsPage() {
+  if (state.currentPage !== 'projects') return;
+  if (!state.projects || !state.projects.length) {
+    loadProjects({ skipRender: false });
+  }
+  renderProjectsList();
+  const project = state.activeProjectId ? getProjectById(state.activeProjectId) : null;
+  fillProjectEditor(project);
+  renderNotesList(project);
+
+  const backBtn = document.getElementById('projects-back-to-chat');
+  backBtn?.addEventListener('click', () => {
+    state.currentPage = 'chat';
+    renderPage('chat');
+  });
+
+  const newBtn = document.getElementById('projects-new-btn');
+  newBtn?.addEventListener('click', async () => {
+    try {
+      const created = await fetchJson('/api/projects', {
+        method: 'POST',
+        body: JSON.stringify({ name: 'Untitled Project', description: '', tags: [] })
+      });
+      state.projects.unshift(created);
+      state.activeProjectId = created.id;
+      renderProjectsPage();
+      showNotification('Project created', 'success');
+    } catch (error) {
+      console.error('[Projects] New failed:', error);
+      showNotification('Failed to create project', 'error');
+    }
+  });
+
+  document.getElementById('project-save-btn')?.addEventListener('click', handleProjectSave);
+  document.getElementById('project-delete-btn')?.addEventListener('click', handleProjectDelete);
+  document.getElementById('note-add-btn')?.addEventListener('click', handleAddNote);
+
+  document.getElementById('project-search-btn')?.addEventListener('click', handleSearchNotes);
+  document.getElementById('project-search-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') handleSearchNotes();
+  });
+
+  document.getElementById('brain-generate-btn')?.addEventListener('click', handleBrainGenerate);
+  document.getElementById('brain-copy-btn')?.addEventListener('click', handleBrainCopy);
+  document.getElementById('brain-send-instant-btn')?.addEventListener('click', handleBrainSendToInstant);
+
+  document.getElementById('projects-export-btn')?.addEventListener('click', handleProjectsExport);
+  document.getElementById('projects-import-btn')?.addEventListener('click', () => {
+    document.getElementById('projects-import-file').click();
+  });
+  document.getElementById('projects-import-file')?.addEventListener('change', (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (file) handleProjectsImport(file);
+    e.target.value = '';
+  });
+}
+
+// Public Brain API for other modules
+async function captureIdeaToProject(content, { type = 'note', tags = [], source = {} } = {}) {
+  const projectId = await ensureActiveProject();
+  if (!projectId || !content || !content.trim()) return null;
+  try {
+    return await fetchJson(`/api/projects/${projectId}/notes`, {
+      method: 'POST',
+      body: JSON.stringify({ type, content, tags, source })
+    });
+  } catch (error) {
+    console.error('[Brain] Capture failed:', error);
+    return null;
+  }
+}
+
+// Enhanced Brain API with more functionality
+if (typeof window !== 'undefined') {
+  window.BrainAPI = {
+    capture: captureIdeaToProject,
+    generatePrompt: async (input, projectId) => {
+      return fetchJson('/api/brain/prompt', {
+        method: 'POST',
+        body: JSON.stringify({ input, projectId })
+      });
+    },
+    sendToBrain: sendToBrainGenerator,
+    captureFromMode: captureIdeaFromMode,
+    ensureActiveProject: ensureActiveProject,
+    getActiveProject: () => state.activeProjectId ? getProjectById(state.activeProjectId) : null,
+    search: async (query, options = {}) => {
+      return fetchJson('/api/projects/search', {
+        method: 'POST',
+        body: JSON.stringify({
+          query,
+          projectId: options.projectId,
+          limit: options.limit || 10
+        })
+      });
+    }
+  };
+}
+
+/**
+ * Enhanced Error Handling and Privacy Safeguards
+ */
+
+// Sanitize user input to prevent XSS and other security issues
+function sanitizeInput(text) {
+  if (!text) return '';
+  return String(text)
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
+    .replace(/javascript:/gi, 'jscript:')
+    .trim();
+}
+
+// Enhanced error handling with fallbacks
+function safeApiCall(endpoint, options = {}) {
+  return fetchJson(endpoint, options)
+    .catch(error => {
+      console.error(`API call failed: ${endpoint}`, error);
+      // Return a safe fallback response based on the endpoint
+      if (endpoint.includes('/search')) {
+        return { results: [], query: '' };
+      } else if (endpoint.includes('/backup')) {
+        return { projects: {}, exportedAt: new Date().toISOString() };
+      } else {
+        return null;
+      }
+    });
+}
+
+// Privacy safeguards - ensure sensitive data is not exposed
+function sanitizeProjectData(project) {
+  if (!project) return null;
+  
+  // Only return safe project properties
+  return {
+    id: project.id,
+    name: project.name,
+    description: project.description,
+    tags: project.tags || [],
+    noteCount: Array.isArray(project.notes) ? project.notes.length : 0,
+    createdAt: project.createdAt,
+    updatedAt: project.updatedAt
+  };
+}
+
+// Enhanced privacy protection for notes
+function sanitizeNoteData(note) {
+  if (!note) return null;
+  
+  return {
+    id: note.id,
+    type: note.type,
+    tags: note.tags || [],
+    content: note.content ? note.content.substring(0, 2000) : '', // Limit content length
+    createdAt: note.createdAt,
+    updatedAt: note.updatedAt
+  };
+}
+
+// Add privacy-focused project loading with sanitization
+async function loadProjectsSecure(options = {}) {
+  try {
+    const data = await safeApiCall('/api/projects');
+    if (!data || !Array.isArray(data.projects)) {
+      state.projects = [];
+      return;
+    }
+
+    // Sanitize projects before storing
+    state.projects = data.projects.map(sanitizeProjectData).filter(Boolean);
+    
+    if (!state.activeProjectId && state.projects.length > 0) {
+      state.activeProjectId = state.projects[0].id;
+    }
+  } catch (error) {
+    console.error('[Projects] Security-hardened load failed:', error);
+    state.projects = [];
+    if (typeof showNotification === 'function') {
+      showNotification('Failed to load projects securely', 'error');
+    }
+  } finally {
+    if (!options.skipRender && state.currentPage === 'projects') {
+      renderProjectsPage();
+    }
+  }
+}
+
+// Enhanced error handling for project operations
+async function createProjectSecure(name, description, tags = []) {
+  try {
+    const sanitizedInput = {
+      name: sanitizeInput(name || ''),
+      description: sanitizeInput(description || ''),
+      tags: Array.isArray(tags) 
+        ? tags.map(tag => sanitizeInput(tag)).slice(0, 50) 
+        : [],
+      instructions: sanitizeInput(options?.instructions || '')
+    };
+
+    const response = await safeApiCall('/api/projects', {
+      method: 'POST',
+      body: JSON.stringify(sanitizedInput)
+    });
+
+    if (response && response.id) {
+      state.projects.unshift(response);
+      state.activeProjectId = response.id;
+      return response;
+    } else {
+      throw new Error('Invalid response from server');
+    }
+  } catch (error) {
+    console.error('[Projects] Secure creation failed:', error);
+    if (typeof showNotification === 'function') {
+      showNotification('Failed to create project securely', 'error');
+    }
+    return null;
+  }
+}
 
 // ==================== MODAL UTILITIES ====================
 
@@ -998,6 +1768,7 @@ async function loadSessions() {
     persistActiveSession();
     syncModeFromActiveSession(); // Sync mode from session
     renderSessionSelector();
+    renderChatSessionsList();
     renderHistoryPage();
     updateSessionInstructionsPreview();
     notifySettingsSubscribers();
@@ -1007,7 +1778,11 @@ async function loadSessions() {
       state.activeSessionId = 'default';
     }
     // Update connection status to offline if there's a connection error
-    if (error.message && (error.message.includes('connect') || error.message.includes('fetch') || error.message.includes('offline'))) {
+    if (
+      error.message &&
+      (error.message.includes('connect') || error.message.includes('fetch') || error.message.includes('offline')) &&
+      elements.status
+    ) {
       elements.status.textContent = 'offline';
       elements.status.classList.remove('badge-online');
       elements.status.classList.add('badge-offline');
@@ -1419,6 +2194,9 @@ function renderComponentPage(templateId) {
         console.warn('[Planning] Planning module not loaded');
       }
       break;
+    case 'projects-page':
+      renderProjectsPage();
+      break;
     case 'sessions-page':
       renderSessionsPage();
       break;
@@ -1503,10 +2281,24 @@ async function handleModeSelection(mode) {
         throw new Error('Failed to create session');
       }
 
-      activeSession = await response.json();
-      state.sessions.push(activeSession);
+      const payload = await response.json();
+      activeSession = payload?.session || payload;
+
+      if (!activeSession?.id) {
+        throw new Error('Server returned an invalid session payload');
+      }
+
+      const existingIndex = state.sessions.findIndex((s) => s.id === activeSession.id);
+      if (existingIndex !== -1) {
+        state.sessions[existingIndex] = activeSession;
+      } else {
+        state.sessions.push(activeSession);
+      }
+
       state.activeSessionId = activeSession.id;
+      state.historySessionId = activeSession.id;
       saveActiveSessionPreference(activeSession.id);
+      await loadSessions();
     } else {
       // Update existing session mode
       state.activeSessionId = activeSession.id;
@@ -2289,6 +3081,34 @@ function attachChatHandlers() {
   const chatSidebar = document.getElementById('chat-sidebar');
   const chatMenuBtn = document.getElementById('chat-menu-btn');
   const chatMenu = document.getElementById('chat-menu');
+  const topBarModeButtons = (typeof getModeButtons === 'function' ? getModeButtons() : document.querySelectorAll('.mode-button')) || [];
+  const topBarSettingsBtn = document.getElementById('settings-btn');
+
+  // Modern top bar mode buttons (instant/planning)
+  if (topBarModeButtons && typeof topBarModeButtons.forEach === 'function') {
+    topBarModeButtons.forEach((btn) => {
+      const targetMode = btn.getAttribute('data-mode');
+      if (!targetMode) return;
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        if (typeof switchMode === 'function') {
+          await switchMode(targetMode);
+        } else {
+          state.currentPage = targetMode === 'planning' ? 'planning' : 'chat';
+          renderPage(state.currentPage);
+        }
+      });
+    });
+  }
+
+  // Modern settings button
+  if (topBarSettingsBtn) {
+    topBarSettingsBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      state.currentPage = 'settings';
+      renderPage('settings');
+    });
+  }
 
   renderChatMessages();
   renderSessionSelector();
@@ -2300,12 +3120,16 @@ function attachChatHandlers() {
   renderChatSessionsList();
   renderAiDisclosure();
   renderQuickActions();
+  initializeSuggestionCardHandlers(input);
   renderChatMeta();
   updateVisionBridgeStatus();
   initializeModelPrepModal();
   evaluateModelReadiness();
   renderPhaseBanner();
   renderPhaseBadge();
+
+  // Add Brain integration to chat
+  addBrainIntegrationToChat();
 
   // Planning mode toggle - switch between normal chat and planning
   const planningToggle = document.getElementById('planning-mode-toggle');
@@ -2358,6 +3182,23 @@ function attachChatHandlers() {
     });
   }
 
+  if (topBarModeButtons && topBarModeButtons.length) {
+    topBarModeButtons.forEach((button) => {
+      button.addEventListener('click', async (event) => {
+        event.preventDefault();
+        const targetMode = button.dataset.mode;
+        if (!targetMode || targetMode === (state.currentMode || 'instant')) {
+          return;
+        }
+        if (typeof switchMode === 'function') {
+          await switchMode(targetMode);
+        } else {
+          console.warn('[Chat] switchMode function not available for mode buttons');
+        }
+      });
+    });
+  }
+
   // Update mode indicator
   updateModeIndicator();
 
@@ -2374,8 +3215,10 @@ function attachChatHandlers() {
   }
 
 
-  sendBtn.addEventListener('click', () => sendMessage());
-  input.addEventListener('keydown', (event) => {
+  if (sendBtn) {
+    sendBtn.addEventListener('click', () => sendMessage());
+  }
+  input?.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       sendMessage();
@@ -2421,7 +3264,7 @@ function attachChatHandlers() {
     }
   }
 
-  input.addEventListener('input', updateInputState);
+  input?.addEventListener('input', updateInputState);
 
   // Initialize on page load
   updateInputState();
@@ -2438,11 +3281,11 @@ function attachChatHandlers() {
   };
   window.addEventListener('workflow-phase-change', window.__workflowPhaseHandler);
 
-  // Image upload functionality
-  const imageUploadBtn = document.getElementById('image-upload-btn');
-  const imageUploadInput = document.getElementById('image-upload-input');
-  const imagePreviewContainer = document.getElementById('image-preview-container');
-  const imagePreviewList = document.getElementById('image-preview-list');
+  // Image upload functionality (support legacy and modern IDs)
+  const imageUploadBtn = document.getElementById('image-upload-btn') || document.getElementById('attach-btn');
+  const imageUploadInput = document.getElementById('image-upload-input') || document.getElementById('file-input');
+  const imagePreviewContainer = document.getElementById('image-preview-container') || document.getElementById('attachments-preview');
+  const imagePreviewList = document.getElementById('image-preview-list'); // legacy only
   const imageCounter = document.getElementById('image-counter');
 
   // Initialize images array in state if not exists
@@ -2534,39 +3377,70 @@ function attachChatHandlers() {
   }
 
   function renderImagePreviews() {
-    if (!imagePreviewList || !imagePreviewContainer) return;
+    // Support legacy and modern containers
+    const instantAttachments = document.getElementById('instant-attachments');
+    const attachmentsPreview = document.getElementById('attachments-preview');
+    const legacyPreviewContainer = document.getElementById('image-preview-container');
+    const legacyPreviewList = document.getElementById('image-preview-list');
+    const imageCounter = document.getElementById('image-counter');
+
+    // Prefer modern attachments preview, then legacy instant, then legacy list
+    const container = attachmentsPreview || instantAttachments || legacyPreviewContainer;
+    const list = instantAttachments || legacyPreviewList;
+
+    if (!container && !list) return;
 
     if (state.currentImages.length === 0) {
-      imagePreviewContainer.style.display = 'none';
+      if (container) container.style.display = 'none';
       if (imageCounter) imageCounter.style.display = 'none';
       return;
     }
 
-    imagePreviewContainer.style.display = 'block';
+    // Show container with proper styling
+    if (container) {
+      container.style.display = 'flex';
+      container.style.flexWrap = 'wrap';
+      container.style.gap = '8px';
+      container.style.padding = '8px';
+      container.style.marginBottom = '8px';
+      container.style.background = 'var(--surface-secondary, #f5f5f5)';
+      container.style.borderRadius = '8px';
+    } else if (list && legacyPreviewContainer) {
+      legacyPreviewContainer.style.display = 'block';
+    }
+    
     if (imageCounter) {
       imageCounter.style.display = 'inline';
       imageCounter.textContent = `${state.currentImages.length} image${state.currentImages.length !== 1 ? 's' : ''}`;
     }
 
-    imagePreviewList.innerHTML = state.currentImages
+    const targetElement = container || list;
+    targetElement.innerHTML = state.currentImages
       .map((img, index) => {
         const label = `${escapeHtml(img.name || 'Screenshot')} • ${formatFileSize(img.size || 0)}`;
         return `
-        <div class="image-preview-item" data-index="${index}" title="${label}">
-          <img src="${img.dataUrl}" alt="${escapeHtml(img.name || 'Screenshot')}" />
-          <button class="image-preview-remove" data-index="${index}" aria-label="Remove image">×</button>
+        <div class="image-preview-item" data-index="${index}" title="${label}"
+             style="position: relative; width: 100px; height: 100px; border-radius: 4px; overflow: hidden;">
+          <img src="${img.dataUrl}" alt="${escapeHtml(img.name || 'Screenshot')}" 
+               style="width: 100%; height: 100%; object-fit: cover;" />
+          <button class="image-preview-remove" data-index="${index}" aria-label="Remove image"
+                  style="position: absolute; top: 4px; right: 4px; background: rgba(220, 53, 69, 0.9); 
+                         color: white; border: none; border-radius: 50%; width: 24px; height: 24px; 
+                         cursor: pointer; font-size: 16px; line-height: 1; display: flex;
+                         align-items: center; justify-content: center;">×</button>
         </div>
       `;
       })
       .join('');
 
     // Add click handlers for remove buttons
-    imagePreviewList.querySelectorAll('.image-preview-remove').forEach(btn => {
+    targetElement.querySelectorAll('.image-preview-remove').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const index = parseInt(btn.dataset.index);
         state.currentImages.splice(index, 1);
         renderImagePreviews();
+        scrollChatToBottom(true);
       });
     });
   }
@@ -2574,8 +3448,16 @@ function attachChatHandlers() {
   function clearImagePreviews() {
     state.currentImages = [];
     renderImagePreviews();
+    const attachmentsPreview = document.getElementById('attachments-preview');
+    const instantAttachments = document.getElementById('instant-attachments');
     if (imagePreviewContainer) {
       imagePreviewContainer.style.display = 'none';
+    }
+    if (attachmentsPreview) {
+      attachmentsPreview.style.display = 'none';
+    }
+    if (instantAttachments) {
+      instantAttachments.style.display = 'none';
     }
     if (imageCounter) {
       imageCounter.style.display = 'none';
@@ -2583,7 +3465,7 @@ function attachChatHandlers() {
     }
   }
 
-  clearBtn.addEventListener('click', async () => {
+  if (clearBtn) clearBtn.addEventListener('click', async () => {
     await fetchJson(`/api/history?sessionId=${encodeURIComponent(state.activeSessionId)}`, {
       method: 'DELETE'
     });
@@ -2884,24 +3766,26 @@ function attachChatHandlers() {
     });
   }
 
-  document.addEventListener('click', (e) => {
-    if (!chatSidebar?.classList.contains('open')) {
-      return;
-    }
-    if (
-      chatSidebar.contains(e.target) ||
-      sidebarToggleMobile?.contains(e.target)
-    ) {
-      return;
-    }
-    closeMobileSidebar();
-  });
-
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && chatSidebar?.classList.contains('open')) {
+  if (chatSidebar) {
+    document.addEventListener('click', (e) => {
+      if (!chatSidebar.classList.contains('open')) {
+        return;
+      }
+      if (
+        chatSidebar.contains(e.target) ||
+        sidebarToggleMobile?.contains(e.target)
+      ) {
+        return;
+      }
       closeMobileSidebar();
-    }
-  });
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && chatSidebar.classList.contains('open')) {
+        closeMobileSidebar();
+      }
+    });
+  }
 
   // Chat menu toggle
   if (chatMenuBtn && chatMenu) {
@@ -2938,6 +3822,14 @@ function attachChatHandlers() {
       if (e.key === 'Escape') {
         closeChatMenu();
       }
+    });
+  }
+
+  if (topBarSettingsBtn) {
+    topBarSettingsBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      state.currentPage = 'settings';
+      renderPage('settings');
     });
   }
 
@@ -3218,11 +4110,15 @@ function attachChatHandlers() {
       renderPhaseBanner();
       renderPhaseBadge();
       showNotification('Complete planning before sending messages.', 'warning', 3500);
-      errorEl.textContent = 'Planning phase must finish before execution.';
+      if (errorEl) {
+        errorEl.textContent = 'Planning phase must finish before execution.';
+      }
       return;
     }
 
-    errorEl.textContent = '';
+    if (errorEl) {
+      errorEl.textContent = '';
+    }
     input.value = '';
     setThinking(true, currentSessionId);
     // CRITICAL: Display original message, not enhanced version
@@ -3290,9 +4186,11 @@ function attachChatHandlers() {
           }
         } else {
           thinkingStreamFailed = true;
-          errorEl.textContent =
-            errorEl.textContent ||
-            'Thinking mode requires a reachable Ollama model list. Falling back to standard response.';
+          if (errorEl) {
+            errorEl.textContent =
+              errorEl.textContent ||
+              'Thinking mode requires a reachable Ollama model list. Falling back to standard response.';
+          }
         }
       }
 
@@ -3338,7 +4236,9 @@ function attachChatHandlers() {
     } catch (error) {
       console.error('Error sending message:', error);
       const errorMessage = error.message || 'Failed to send message';
-      errorEl.textContent = errorMessage;
+      if (errorEl) {
+        errorEl.textContent = errorMessage;
+      }
       registerPersistentError('chat-send', error);
 
       // Update UI elements to reflect the error
@@ -3369,6 +4269,11 @@ function attachChatHandlers() {
 
   async function sendThinkingStream(payload, liveThinking, liveUser) {
     console.log('[DEBUG] Starting SSE stream to:', buildUrl('/api/chat/stream'));
+    
+    // Start auto-scroll when streaming begins
+    state.isStreaming = true;
+    enableAutoScroll();
+    
     const response = await fetch(buildUrl('/api/chat/stream'), {
       method: 'POST',
       headers: {
@@ -3380,9 +4285,13 @@ function attachChatHandlers() {
     console.log('[DEBUG] SSE response status:', response.status, response.ok);
     if (!response.ok) {
       const errorText = await response.text();
+      state.isStreaming = false;
+      disableAutoScroll();
       throw new Error(errorText || `Unable to start thinking mode (status ${response.status})`);
     }
     if (!response.body) {
+      state.isStreaming = false;
+      disableAutoScroll();
       throw new Error('Unable to start thinking mode (empty stream)');
     }
 
@@ -3416,16 +4325,20 @@ function attachChatHandlers() {
           const responseText = chunk.response || latestSplit.response || aggregated;
           let thinkingText = resolveRenderableThinking(chunk.thinking, latestSplit.hasMarker ? latestSplit.thinking : '');
           if (!thinkingText && latestSplit && !latestSplit.hasMarker && aggregated.trim().length) {
-            console.debug('[thinking-stream] Stream completed without detectable reasoning markers');
-          }
-          if (liveThinking) {
-            finalizeThinkingEntry(liveThinking, thinkingText, responseText);
-          }
+          console.debug('[thinking-stream] Stream completed without detectable reasoning markers');
+        }
+        if (liveThinking) {
+          finalizeThinkingEntry(liveThinking, thinkingText, responseText);
+        }
 
-          // Remove user live entry only
-          if (liveUser) {
-            liveUser.remove();
-          }
+        // Remove user live entry only
+        if (liveUser) {
+          liveUser.remove();
+        }
+        
+        // Stop auto-scroll when stream completes
+        state.isStreaming = false;
+        disableAutoScroll();
 
           const fallbackEntry =
             !Array.isArray(chunk.history) || !chunk.history.length
@@ -4072,7 +4985,160 @@ async function ensureThinkingPrerequisites() {
   return true;
 }
 
+function formatSessionMeta(session, sessionHistory) {
+  const metaParts = [];
+  const messageCount = sessionHistory.length;
+  if (messageCount) {
+    metaParts.push(`${messageCount} msg${messageCount === 1 ? '' : 's'}`);
+  }
+  const updatedAt = sessionHistory.length
+    ? sessionHistory[sessionHistory.length - 1]?.timestamp
+    : session.updatedAt;
+  if (updatedAt) {
+    const date = new Date(updatedAt);
+    metaParts.push(date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }));
+  }
+  if (!metaParts.length && session.createdAt) {
+    const created = new Date(session.createdAt);
+    metaParts.push(`Created ${created.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`);
+  }
+  if (!metaParts.length) {
+    metaParts.push('No activity yet');
+  }
+  return metaParts.join(' | ');
+}
+
+function getSessionDisplayInfo(session) {
+  const sessionHistory = state.sessionHistories[session.id] || [];
+  const firstMessage = sessionHistory.length > 0 ? sessionHistory[0].user : null;
+  const fallbackName = session.name && session.name !== 'New Chat' ? session.name : null;
+  const titleSource = firstMessage || fallbackName || 'New Chat';
+  const title =
+    titleSource && titleSource.length > 40 ? `${titleSource.substring(0, 40)}...` : (titleSource || 'New Chat');
+  const metaText = formatSessionMeta(session, sessionHistory);
+  return { title, metaText, sessionHistory };
+}
+
+async function handleSessionSelection(session, title) {
+  state.activeSessionId = session.id;
+  persistActiveSession();
+  await loadServerHistory(session.id);
+  renderChatMessages();
+  renderChatSessionsList();
+  updateSessionInstructionsPreview();
+  updatePresetIndicator();
+  if (typeof clearImagePreviews === 'function') {
+    clearImagePreviews();
+  }
+
+  const chatTitle = document.getElementById('chat-title');
+  if (chatTitle) {
+    chatTitle.textContent = title.length > 30 ? `${title.substring(0, 30)}...` : title;
+  }
+
+  const chatSidebar = document.getElementById('chat-sidebar');
+  if (chatSidebar && window.innerWidth <= 768) {
+    chatSidebar.classList.remove('open');
+  }
+}
+
+async function handleSessionDeletion(session) {
+  if (session.id === 'default') {
+    alert('Cannot delete the default session');
+    return;
+  }
+  if (!confirm('Delete this chat? This cannot be undone.')) {
+    return;
+  }
+  try {
+    console.log('[DEBUG] Deleting session:', session.id);
+    const response = await fetch(buildUrl(`/api/sessions/${encodeURIComponent(session.id)}`), {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Delete failed');
+    }
+
+    await response.json();
+
+    state.sessions = state.sessions.filter((s) => s.id !== session.id);
+    delete state.sessionHistories[session.id];
+    delete state.localHistory[session.id];
+
+    if (state.activeSessionId === session.id) {
+      state.activeSessionId = state.sessions[0]?.id || 'default';
+      await loadServerHistory(state.activeSessionId);
+      renderChatMessages();
+    }
+
+    renderChatSessionsList();
+    persistLocalHistory();
+    persistActiveSession();
+  } catch (error) {
+    console.error('[ERROR] Failed to delete session:', error);
+    alert('Failed to delete chat: ' + error.message);
+  }
+}
+
 function renderChatSessionsList() {
+  const modernContainer = document.getElementById('chat-list');
+  if (modernContainer) {
+    renderModernSessionList(modernContainer);
+    return;
+  }
+  renderLegacySessionList();
+}
+
+function renderModernSessionList(container) {
+  container.innerHTML = '';
+
+  if (!state.sessions || state.sessions.length === 0) {
+    container.innerHTML =
+      '<p class="text-small muted" style="padding: 1rem; text-align: center;">No chats yet</p>';
+    return;
+  }
+
+  state.sessions.forEach((session) => {
+    const { title, metaText } = getSessionDisplayInfo(session);
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'chat-item';
+    if (session.id === state.activeSessionId) {
+      item.classList.add('active');
+    }
+    item.dataset.sessionId = session.id;
+    item.innerHTML = `
+      <div class="chat-item-title">
+        <div class="chat-item-name">${escapeHtml(title)}</div>
+        <div class="chat-item-meta">${escapeHtml(metaText)}</div>
+      </div>
+      <span class="chat-item-delete" aria-label="Delete chat">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="3 6 5 6 21 6"></polyline>
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path>
+          <path d="M10 11v6"></path>
+          <path d="M14 11v6"></path>
+          <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path>
+        </svg>
+      </span>
+    `;
+
+    const deleteBtn = item.querySelector('.chat-item-delete');
+    deleteBtn?.addEventListener('click', (event) => {
+      event.stopPropagation();
+      handleSessionDeletion(session);
+    });
+
+    item.addEventListener('click', () => handleSessionSelection(session, title));
+
+    container.appendChild(item);
+  });
+}
+
+function renderLegacySessionList() {
   const container = document.getElementById('chat-sessions-list');
 
   // Ultra-modern layout: time-grouped session containers
@@ -4115,29 +5181,6 @@ function renderChatSessionsList() {
     }
   });
 
-  const formatSessionMeta = (session, sessionHistory) => {
-    const metaParts = [];
-    const messageCount = sessionHistory.length;
-    if (messageCount) {
-      metaParts.push(`${messageCount} msg${messageCount === 1 ? '' : 's'}`);
-    }
-    const updatedAt = sessionHistory.length
-      ? sessionHistory[sessionHistory.length - 1]?.timestamp
-      : session.updatedAt;
-    if (updatedAt) {
-      const date = new Date(updatedAt);
-      metaParts.push(date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }));
-    }
-    if (!metaParts.length && session.createdAt) {
-      const created = new Date(session.createdAt);
-      metaParts.push(`Created ${created.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`);
-    }
-    if (!metaParts.length) {
-      metaParts.push('No activity yet');
-    }
-    return metaParts.join(' | ');
-  };
-
   // Helper to create session button
   const createSessionButton = (session) => {
     const btn = document.createElement('button');
@@ -4146,13 +5189,7 @@ function renderChatSessionsList() {
       btn.classList.add('active');
     }
 
-    const sessionHistory = state.sessionHistories[session.id] || [];
-    const firstMessage = sessionHistory.length > 0 ? sessionHistory[0].user : null;
-    const fallbackName = session.name && session.name !== 'New Chat' ? session.name : null;
-    const titleSource = firstMessage || fallbackName || 'New Chat';
-    const title =
-      titleSource && titleSource.length > 40 ? `${titleSource.substring(0, 40)}...` : (titleSource || 'New Chat');
-    const metaText = formatSessionMeta(session, sessionHistory);
+    const { title, metaText } = getSessionDisplayInfo(session);
 
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'session-delete-btn';
@@ -4163,45 +5200,9 @@ function renderChatSessionsList() {
       </svg>
     `;
 
-    deleteBtn.addEventListener('click', async (e) => {
+    deleteBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (session.id === 'default') {
-        alert('Cannot delete the default session');
-        return;
-      }
-      if (!confirm('Delete this chat? This cannot be undone.')) {
-        return;
-      }
-      try {
-        console.log('[DEBUG] Deleting session:', session.id);
-        const response = await fetch(buildUrl(`/api/sessions/${encodeURIComponent(session.id)}`), {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' }
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Delete failed');
-        }
-
-        const result = await response.json();
-        console.log('[DEBUG] Delete successful:', result);
-
-        state.sessions = state.sessions.filter(s => s.id !== session.id);
-        delete state.sessionHistories[session.id];
-        delete state.localHistory[session.id];
-        if (state.activeSessionId === session.id) {
-          state.activeSessionId = state.sessions[0]?.id || 'default';
-          await loadServerHistory(state.activeSessionId);
-          renderChatMessages();
-        }
-        renderChatSessionsList();
-        persistLocalHistory();
-        persistActiveSession();
-      } catch (error) {
-        console.error('[ERROR] Failed to delete session:', error);
-        alert('Failed to delete chat: ' + error.message);
-      }
+      handleSessionDeletion(session);
     });
 
     const copyDiv = document.createElement('div');
@@ -4214,27 +5215,7 @@ function renderChatSessionsList() {
     btn.appendChild(copyDiv);
     btn.appendChild(deleteBtn);
 
-    btn.addEventListener('click', async () => {
-      state.activeSessionId = session.id;
-      persistActiveSession();
-      await loadServerHistory(session.id);
-      renderChatMessages();
-      renderChatSessionsList();
-      updateSessionInstructionsPreview();
-      updatePresetIndicator();
-
-      // Update chat title
-      const chatTitle = document.getElementById('chat-title');
-      if (chatTitle) {
-        chatTitle.textContent = title.length > 30 ? title.substring(0, 30) + '...' : title;
-      }
-
-      // Close mobile sidebar
-      const chatSidebar = document.getElementById('chat-sidebar');
-      if (chatSidebar && window.innerWidth <= 768) {
-        chatSidebar.classList.remove('open');
-      }
-    });
+    btn.addEventListener('click', () => handleSessionSelection(session, title));
 
     return btn;
   };
@@ -4511,8 +5492,15 @@ function formatTagContent(tagName, content) {
 }
 
 function renderChatMessages() {
-  const container = document.getElementById('chat-history') || document.getElementById('chat-history-ultra');
+  const modernContainer = document.getElementById('messages-container');
+  const container =
+    modernContainer ||
+    document.getElementById('chat-history') ||
+    document.getElementById('chat-history-ultra');
+  const welcomeScreen = document.getElementById('welcome-screen');
+
   if (!container) return;
+
   clearLiveEntries();
   container.innerHTML = '';
 
@@ -4524,7 +5512,13 @@ function renderChatMessages() {
 
   renderChatMeta();
 
-  if (!history || !history.length) {
+  const hasHistory = Array.isArray(history) && history.length > 0;
+
+  if (modernContainer || welcomeScreen) {
+    setConversationViewState(hasHistory);
+  }
+
+  if (!hasHistory) {
     toggleEmptyHero(true);
     return;
   }
@@ -4785,9 +5779,31 @@ function applySidebarStaggering() {
 
 function toggleEmptyHero(show) {
   const hero = document.getElementById('chat-empty-hero');
-  if (!hero) return;
-  hero.hidden = !show;
-  hero.setAttribute('aria-hidden', show ? 'false' : 'true');
+  if (hero) {
+    hero.hidden = !show;
+    hero.setAttribute('aria-hidden', show ? 'false' : 'true');
+  }
+  setConversationViewState(!show ? true : false);
+}
+
+function setConversationViewState(showMessages) {
+  const modernWelcome = document.getElementById('welcome-screen');
+  const modernMessages = document.getElementById('messages-container');
+  if (modernWelcome) {
+    modernWelcome.style.display = showMessages ? 'none' : 'flex';
+    modernWelcome.setAttribute('aria-hidden', showMessages ? 'true' : 'false');
+  }
+  if (modernMessages) {
+    modernMessages.style.display = showMessages ? '' : 'none';
+  }
+}
+
+function getModeButtons() {
+  return Array.from(document.querySelectorAll('.mode-button[data-mode]'));
+}
+
+function getSuggestionCards() {
+  return Array.from(document.querySelectorAll('.suggestion-card[data-prompt]'));
 }
 
 /**
@@ -4800,6 +5816,7 @@ function updateModeIndicator() {
   const switchModeLabel = document.getElementById('switch-mode-label');
   const instantIcon = document.querySelector('.mode-icon-instant');
   const planningIcon = document.querySelector('.mode-icon-planning');
+  const topBarModeButtons = getModeButtons();
 
   const currentMode = state.currentMode || 'instant';
 
@@ -4833,6 +5850,19 @@ function updateModeIndicator() {
   // Update switch button
   if (switchModeLabel) {
     switchModeLabel.textContent = currentMode === 'instant' ? 'Switch to Planning' : 'Switch to Instant';
+  }
+
+  if (topBarModeButtons && topBarModeButtons.length) {
+    topBarModeButtons.forEach((button) => {
+      const buttonMode = button.dataset.mode || 'instant';
+      if (buttonMode === currentMode) {
+        button.classList.add('active');
+        button.setAttribute('aria-pressed', 'true');
+      } else {
+        button.classList.remove('active');
+        button.setAttribute('aria-pressed', 'false');
+      }
+    });
   }
 }
 
@@ -4927,35 +5957,83 @@ function renderPhaseBanner() {
 }
 
 function renderQuickActions() {
-  const container = document.getElementById('chat-quick-actions');
-  if (!container) return;
-  container.innerHTML = '';
-  QUICK_ACTIONS.forEach((action) => {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'quick-action-btn';
-    button.setAttribute('aria-label', `Insert prompt: ${action.label}`);
-    button.innerHTML = `
-      <span class="qa-icon" aria-hidden="true">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M5 19L19 5M10 5h9v9" stroke-linecap="round" stroke-linejoin="round"></path>
-        </svg>
-      </span>
-      <span class="qa-copy">
-        <span class="qa-title">${action.label}</span>
-        <span class="qa-subtitle">${action.description || ''}</span>
-      </span>
-    `;
-    button.dataset.promptId = action.id;
-    button.addEventListener('click', () => {
-      const input = document.getElementById('chat-input');
-      if (!input) return;
-      input.value = action.prompt;
-      input.focus();
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+  const legacyContainer = document.getElementById('chat-quick-actions');
+  const suggestionContainer = document.querySelector('.suggestion-cards');
+  const actions = Array.isArray(QUICK_ACTIONS) ? QUICK_ACTIONS : [];
+
+  if (!legacyContainer && !suggestionContainer) {
+    return;
+  }
+
+  if (legacyContainer) {
+    legacyContainer.innerHTML = '';
+    actions.forEach((action) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'quick-action-btn';
+      button.setAttribute('aria-label', `Insert prompt: ${action.label}`);
+      button.innerHTML = `
+        <span class="qa-icon" aria-hidden="true">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M5 19L19 5M10 5h9v9" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+        </span>
+        <span class="qa-copy">
+          <span class="qa-title">${action.label}</span>
+          <span class="qa-subtitle">${action.description || ''}</span>
+        </span>
+      `;
+      button.dataset.promptId = action.id;
+      button.addEventListener('click', () => {
+        const input = document.getElementById('chat-input');
+        if (!input) return;
+        input.value = action.prompt;
+        input.focus();
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+      });
+      legacyContainer.appendChild(button);
     });
-    container.appendChild(button);
+  }
+
+  if (suggestionContainer) {
+    suggestionContainer.innerHTML = actions
+      .map(
+        (action) => `
+        <div class="suggestion-card" data-prompt="${escapeHtml(action.prompt)}" tabindex="0" role="button">
+          <h4>${escapeHtml(action.label)}</h4>
+          <p>${escapeHtml(action.description || '')}</p>
+        </div>
+      `
+      )
+      .join('');
+  }
+}
+
+function initializeSuggestionCardHandlers(inputElement) {
+  if (!inputElement) return;
+  const cards = getSuggestionCards();
+  if (!cards.length) return;
+
+  cards.forEach((card) => {
+    if (card.dataset.bound === 'true') {
+      return;
+    }
+    card.dataset.bound = 'true';
+    card.addEventListener('click', () => {
+      const prompt = card.dataset.prompt;
+      if (!prompt) return;
+      inputElement.value = prompt;
+      inputElement.focus();
+      inputElement.dispatchEvent(new Event('input', { bubbles: true }));
+      toggleEmptyHero(false);
+    });
+    card.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        card.click();
+      }
+    });
   });
 }
 
@@ -5257,12 +6335,54 @@ function escapeHtml(value = '') {
     .replace(/'/g, '&#39;');
 }
 
-function scrollChatToBottom() {
-  const container = document.getElementById('chat-history') || document.getElementById('chat-history-ultra');
+function scrollChatToBottom(smooth = true) {
+  const container = document.getElementById('messages-container') ||
+                   document.getElementById('conversation-content') ||
+                   document.getElementById('conversation-container') ||
+                   document.getElementById('chat-history') || 
+                   document.getElementById('chat-history-ultra') ||
+                   document.getElementById('instant-conversation');
   if (!container) return;
+  
   requestAnimationFrame(() => {
-    container.scrollTop = container.scrollHeight;
+    if (smooth) {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: 'smooth'
+      });
+    } else {
+      container.scrollTop = container.scrollHeight;
+    }
   });
+}
+
+// Auto-scroll during streaming responses
+function enableAutoScroll() {
+  if (!state.autoScrollInterval) {
+    setAutoScrollVisualState(true);
+    state.autoScrollInterval = setInterval(() => {
+      if (state.isStreaming) {
+        scrollChatToBottom(true);
+      }
+    }, 1000); // Scroll every second during streaming
+  }
+}
+
+function disableAutoScroll() {
+  if (state.autoScrollInterval) {
+    clearInterval(state.autoScrollInterval);
+    state.autoScrollInterval = null;
+  }
+  setAutoScrollVisualState(false);
+}
+
+function setAutoScrollVisualState(active) {
+  const host =
+    document.getElementById('conversation-content') ||
+    document.getElementById('conversation-container');
+  if (host) {
+    host.classList.toggle('auto-scroll-active', Boolean(active));
+  }
 }
 
 function normalizeTextBlock(value = '') {
@@ -5479,16 +6599,52 @@ function clearLiveEntries() {
 }
 
 function appendLiveUserMessage(content) {
-  const container = document.getElementById('chat-history') || document.getElementById('chat-history-ultra');
+  const modernContainer = document.getElementById('messages-container');
+  const container =
+    modernContainer ||
+    document.getElementById('chat-history') ||
+    document.getElementById('chat-history-ultra');
   if (!container) return null;
+
+  const sanitized = escapeHtml(content || '').replace(/\n/g, '<br>');
+  const timestamp = new Date().toLocaleTimeString();
+
+  if (modernContainer) {
+    setConversationViewState(true);
+  }
+
+  if (modernContainer) {
+    const group = document.createElement('div');
+    group.className = 'conversation-group live-entry live-user-entry';
+    group.innerHTML = `
+      <div class="message-bubble-user">
+        <div class="message-avatar user">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+          </svg>
+        </div>
+        <div class="message-content">
+          <div class="message-header">
+            <span class="message-sender">You</span>
+            <span class="message-timestamp">${timestamp}</span>
+          </div>
+          <div class="message-text">${sanitized}</div>
+        </div>
+      </div>
+    `;
+    container.appendChild(group);
+    scrollChatToBottom();
+    return group;
+  }
+
   const article = document.createElement('article');
   article.className = 'chat-entry live-entry';
   article.innerHTML = `
     <header>
       <strong>You</strong>
-      <span>${new Date().toLocaleTimeString()}</span>
+      <span>${timestamp}</span>
     </header>
-    <p><strong>Q:</strong> ${content}</p>
+    <p><strong>Q:</strong> ${sanitized}</p>
   `;
   container.appendChild(article);
   scrollChatToBottom();
@@ -5496,14 +6652,74 @@ function appendLiveUserMessage(content) {
 }
 
 function appendThinkingMessage() {
-  const container = document.getElementById('chat-history') || document.getElementById('chat-history-ultra');
+  const modernContainer = document.getElementById('messages-container');
+  const container =
+    modernContainer ||
+    document.getElementById('chat-history') ||
+    document.getElementById('chat-history-ultra');
   if (!container) return null;
+
+  const timestamp = new Date().toLocaleTimeString();
+
+  if (modernContainer) {
+    setConversationViewState(true);
+    const group = document.createElement('div');
+    group.className = 'conversation-group live-entry live-thinking-entry';
+    group.innerHTML = `
+      <div class="message-bubble-assistant">
+        <div class="message-avatar assistant">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
+        </div>
+        <div class="assistant-content-wrapper">
+          <div class="message-content">
+            <div class="message-header">
+              <span class="message-sender">Assistant</span>
+              <span class="message-timestamp">${timestamp}</span>
+            </div>
+            <div class="thinking-section live-thinking">
+              <button class="thinking-toggle-btn expanded" aria-label="Toggle thinking">
+                <svg class="thinking-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+                </svg>
+                <span class="thinking-label">Thinking...</span>
+                <svg class="chevron-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M6 9l6 6 6-6"/>
+                </svg>
+              </button>
+              <div class="thinking-content">
+                <div class="thinking-live">
+                  <p><span class="assistant-live-text"></span></p>
+                </div>
+                <div class="thinking-text" hidden></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const toggleBtn = group.querySelector('.thinking-toggle-btn');
+    const content = group.querySelector('.thinking-content');
+    if (toggleBtn && content) {
+      toggleBtn.addEventListener('click', () => {
+        content.classList.toggle('collapsed');
+        toggleBtn.classList.toggle('expanded');
+      });
+    }
+
+    container.appendChild(group);
+    scrollChatToBottom();
+    return group;
+  }
+
   const article = document.createElement('article');
   article.className = 'chat-entry assistant live-entry thinking-entry';
   article.innerHTML = `
     <header>
       <strong>Assistant</strong>
-      <span>${new Date().toLocaleTimeString()}</span>
+      <span>${timestamp}</span>
     </header>
     <div class="thinking-section">
       <button class="thinking-toggle-btn expanded" aria-label="Toggle thinking">
@@ -5594,6 +6810,27 @@ function attachPlanningHandlers() {
   if (typeof window.PlanningMode === 'undefined') {
     console.warn('[Planning] PlanningMode not available yet');
     return;
+  }
+
+  // Add Brain integration to planning mode
+  addBrainIntegrationToPlanning();
+
+  // Modern top bar mode buttons (instant/planning)
+  const topBarModeButtons = document.querySelectorAll('.mode-button');
+  if (topBarModeButtons && typeof topBarModeButtons.forEach === 'function') {
+    topBarModeButtons.forEach((btn) => {
+      const targetMode = btn.getAttribute('data-mode');
+      if (!targetMode) return;
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        if (typeof switchMode === 'function') {
+          await switchMode(targetMode);
+        } else {
+          state.currentPage = targetMode === 'planning' ? 'planning' : 'chat';
+          renderPage(state.currentPage);
+        }
+      });
+    });
   }
 
   // Wire up event handlers for planning mode
@@ -5753,6 +6990,96 @@ function collectSettingsErrors(payload) {
 }
 
 function attachSettingsHandlers() {
+  // Modern settings (card-based) quick bindings
+  const modernModel = document.getElementById('settings-model');
+  const modernMode = document.getElementById('settings-mode');
+  const modernTheme = document.getElementById('settings-theme');
+  const modernEndpoint = document.getElementById('settings-endpoint');
+  const modernHistory = document.getElementById('settings-history');
+
+  // If modern controls exist, wire them and return
+  if (modernModel || modernMode || modernTheme || modernEndpoint || modernHistory) {
+    (async () => {
+      try {
+        if (!state.availableModels?.length) {
+          await loadAvailableModels();
+        }
+        // Populate model select
+        if (modernModel) {
+          modernModel.innerHTML = '';
+          (state.availableModels || []).forEach((m) => {
+            const opt = document.createElement('option');
+            opt.value = m.name || m;
+            opt.textContent = m.name || m;
+            if ((state.settings?.model || '') === (m.name || m)) {
+              opt.selected = true;
+            }
+            modernModel.appendChild(opt);
+          });
+          modernModel.addEventListener('change', async (e) => {
+            await saveSettings({ model: e.target.value });
+          });
+        }
+        if (modernMode) {
+          modernMode.value = (state.settings?.ollamaMode || 'local');
+          modernMode.addEventListener('change', async (e) => {
+            await saveSettings({ ollamaMode: e.target.value });
+          });
+        }
+        if (modernTheme) {
+          modernTheme.value = (state.settings?.theme || 'system');
+          modernTheme.addEventListener('change', async (e) => {
+            await saveSettings({ theme: e.target.value });
+            initializeThemeSystem();
+          });
+        }
+        if (modernEndpoint) {
+          modernEndpoint.value = (state.settings?.apiEndpoint || 'http://127.0.0.1:11434/');
+          modernEndpoint.addEventListener('change', async (e) => {
+            await saveSettings({ apiEndpoint: e.target.value });
+          });
+        }
+        if (modernHistory) {
+          modernHistory.value = String(state.settings?.maxHistory || 20);
+          modernHistory.addEventListener('change', async (e) => {
+            const v = Number(e.target.value);
+            if (!Number.isNaN(v) && v > 0) {
+              await saveSettings({ maxHistory: v });
+            }
+          });
+        }
+      } catch (err) {
+        console.error('[Settings] Modern bindings failed:', err);
+      }
+    })();
+
+    // Helper to POST settings
+    async function saveSettings(payload) {
+      try {
+        const response = await fetch(buildUrl('/api/settings'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({}));
+          throw new Error(error.error || 'Failed to save settings');
+        }
+        const updated = await response.json();
+        state.settings = { ...(state.settings || {}), ...(updated || {}) };
+        persistClientSettings();
+        // Reflect on model selector if in chat
+        renderModelSelector();
+        renderChatMeta();
+      } catch (e) {
+        console.error('[Settings] Save failed:', e);
+        alert(e.message || 'Failed to save settings');
+      }
+    }
+    return; // Modern settings path handled
+  }
+
+  // Legacy settings (form-based)
   const form = document.getElementById('settings-form');
   const customPageForm = document.getElementById('custom-page-form');
   const list = document.getElementById('custom-page-list');
@@ -6746,6 +8073,26 @@ function cycleTheme() {
   return nextTheme;
 }
 
+// Get the appropriate theme toggle button element
+function getThemeToggleButton() {
+  // Try to find the most common theme toggle button IDs - be conservative
+  let themeToggle = null;
+  
+  // Check for the most commonly referenced theme toggle
+  themeToggle = document.getElementById('theme-toggle-btn');
+  if (themeToggle) return themeToggle;
+  
+  // Alternative ID
+  themeToggle = document.getElementById('theme-toggle');
+  if (themeToggle) return themeToggle;
+  
+  // Class-based selector as backup
+  themeToggle = document.querySelector('.theme-toggle-btn');
+  if (themeToggle) return themeToggle;
+  
+  return null; // Return null if no element found
+}
+
 function initializeThemeSystem() {
   // Apply initial theme
   applyTheme(state.settings.theme);
@@ -6763,7 +8110,7 @@ function initializeThemeSystem() {
   }
 
   // Setup theme toggle button
-  const themeToggle = document.getElementById('theme-toggle');
+  const themeToggle = getThemeToggleButton();
   if (themeToggle) {
     themeToggle.addEventListener('click', async () => {
       const newTheme = cycleTheme();
@@ -7109,16 +8456,24 @@ function syncWorkflowStateWithSessions() {
 }
 
 function isSessionReadyForExecution(sessionId) {
-  // Check if session is in instant mode - instant mode always ready
+  // Always allow chat in instant/default mode (no planning required)
+  // This fix removes the "planning must be completed first" error
   const session = state.sessions.find(s => s.id === sessionId);
-  if (session && session.mode === 'instant') {
-    return true; // Instant mode bypasses workflow checks
+  
+  // If session is instant mode or doesn't exist (default), always ready
+  if (!session || session.mode === 'instant' || session.mode === undefined) {
+    return true;
   }
 
-  // For planning mode, check workflow phase
-  const entry = getWorkflowEntry(sessionId);
-  if (!entry) return true;
-  return entry.phase === WORKFLOW_PHASES.EXECUTION;
+  // Only check workflow phases for planning mode sessions
+  if (session.mode === 'planning') {
+    const entry = getWorkflowEntry(sessionId);
+    if (!entry) return true;
+    return entry.phase === WORKFLOW_PHASES.EXECUTION;
+  }
+  
+  // Default to allowing execution
+  return true;
 }
 
 function emitWorkflowPhaseChange(sessionId) {

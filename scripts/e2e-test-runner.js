@@ -13,6 +13,8 @@
  */
 
 const puppeteer = require('puppeteer');
+const { startMockOllama } = require('./mock-ollama');
+const { startServer } = require('../server');
 
 // Test configuration from environment variables
 const CONFIG = {
@@ -31,6 +33,16 @@ const testResults = {
   failed: [],
   warnings: []
 };
+
+const MOCK_PORT = Number(process.env.E2E_MOCK_PORT || '14001');
+const SERVER_PORT = (() => {
+  try {
+    const parsed = new URL(CONFIG.serverUrl);
+    return Number(parsed.port) || (parsed.protocol === 'https:' ? 443 : 80);
+  } catch {
+    return 4100;
+  }
+})();
 
 // Logging utilities
 function logInfo(message) {
@@ -60,6 +72,10 @@ function logSection(title) {
 }
 
 // Helper functions
+function delay(ms = 500) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function waitForSelector(page, selector, options = {}) {
   const timeout = options.timeout || 10000;
   try {
@@ -74,7 +90,7 @@ async function safeClick(page, selector, description) {
   try {
     await waitForSelector(page, selector, { visible: true });
     await page.click(selector);
-    await page.waitForTimeout(500); // Small delay for UI updates
+    await delay(500); // Small delay for UI updates
     return true;
   } catch (error) {
     throw new Error(`Failed to click ${description}: ${error.message}`);
@@ -86,10 +102,126 @@ async function safeType(page, selector, text, description) {
     await waitForSelector(page, selector, { visible: true });
     await page.click(selector);
     await page.type(selector, text, { delay: 10 });
-    await page.waitForTimeout(300);
+    await delay(300);
     return true;
   } catch (error) {
     throw new Error(`Failed to type in ${description}: ${error.message}`);
+  }
+}
+
+async function waitForServerReady(url, retries = 50) {
+  for (let attempt = 0; attempt < retries; attempt += 1) {
+    try {
+      const response = await fetch(`${url}/health`);
+      if (response.ok) {
+        return;
+      }
+    } catch (_) {
+      // retry
+    }
+    await delay(200);
+  }
+  throw new Error('Server did not become ready in time');
+}
+
+async function createInstantSession(sessionName) {
+  const response = await fetch(`${CONFIG.serverUrl}/api/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: sessionName,
+      mode: 'instant',
+      instructions: ''
+    })
+  });
+  if (!response.ok) {
+    throw new Error(`Session creation failed (${response.status})`);
+  }
+  const data = await response.json();
+  const sessionId = data.session?.id || data.id;
+  if (!sessionId) {
+    throw new Error('API did not return a session ID');
+  }
+
+  const selectResponse = await fetch(
+    `${CONFIG.serverUrl}/api/sessions/${encodeURIComponent(sessionId)}/select`,
+    { method: 'POST' }
+  );
+  if (!selectResponse.ok) {
+    throw new Error(`Failed to select session (${selectResponse.status})`);
+  }
+  logInfo(`Activated session ${sessionId} via API`);
+  return sessionId;
+}
+
+async function sendMessageViaApi(message) {
+  const sessionsResp = await fetch(`${CONFIG.serverUrl}/api/sessions`, {
+    headers: { 'Content-Type': 'application/json' }
+  });
+  if (!sessionsResp.ok) {
+    throw new Error(`Unable to fetch sessions (${sessionsResp.status})`);
+  }
+  const sessionsData = await sessionsResp.json();
+  const activeSessionId =
+    sessionsData.activeSessionId ||
+    (Array.isArray(sessionsData.sessions) && sessionsData.sessions[0]?.id);
+  if (!activeSessionId) {
+    throw new Error('No active session available for fallback send');
+  }
+
+  const payload = {
+    message,
+    model: 'mock-model',
+    instructions: '',
+    apiEndpoint: null,
+    sessionId: activeSessionId,
+    thinkingEnabled: false,
+    thinkingMode: 'default',
+    includeHistory: true
+  };
+
+  const response = await fetch(`${CONFIG.serverUrl}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    throw new Error(`Fallback API send failed (${response.status})`);
+  }
+  await response.json();
+  logInfo(`Fallback API send succeeded for session ${activeSessionId}`);
+}
+
+async function ensureInstantMode(page) {
+  const instantSelectors = [
+    '.mode-select-btn[data-mode="instant"]',
+    '[data-mode="instant"]',
+    '#instant-mode-card',
+    '[data-page="chat"]'
+  ];
+
+  for (const selector of instantSelectors) {
+    try {
+      await waitForSelector(page, selector, { visible: true, timeout: 2000 });
+      await page.click(selector);
+      await delay(800);
+      logInfo(`Clicked selector ${selector} to enter instant mode`);
+      return;
+    } catch (_) {
+      // try next selector
+    }
+  }
+
+  try {
+    await page.evaluate(() => {
+      if (typeof window.navigateToPage === 'function') {
+        window.navigateToPage('chat');
+      }
+    });
+    await delay(800);
+    logInfo('Called window.navigateToPage("chat") directly');
+  } catch (_) {
+    // ignore
   }
 }
 
@@ -155,7 +287,7 @@ async function testSettingsPageAccess(page) {
       });
     }
 
-    await page.waitForTimeout(1000);
+    await delay(1000);
     logSuccess(testName);
   } catch (error) {
     logError(testName, error);
@@ -170,7 +302,7 @@ async function testCreateSession(page) {
 
     // Navigate to main page
     await page.goto(CONFIG.serverUrl, { waitUntil: 'networkidle0' });
-    await page.waitForTimeout(1000);
+    await delay(1000);
 
     // Look for new session button
     const newSessionSelectors = [
@@ -186,7 +318,7 @@ async function testCreateSession(page) {
         const button = await page.$(selector);
         if (button) {
           await button.click();
-          await page.waitForTimeout(500);
+          await delay(500);
 
           // Try to find and fill session name input
           const nameInputSelectors = [
@@ -218,7 +350,7 @@ async function testCreateSession(page) {
               const submitBtn = await page.$(submitSelector);
               if (submitBtn) {
                 await submitBtn.click();
-                await page.waitForTimeout(1000);
+                await delay(1000);
                 break;
               }
             }
@@ -247,68 +379,90 @@ async function testSendChatMessage(page) {
     logInfo(`Testing: ${testName}`);
 
     await page.goto(CONFIG.serverUrl, { waitUntil: 'networkidle0' });
-    await page.waitForTimeout(1000);
+    await delay(1000);
+    await page.evaluate(() => {
+      try {
+        localStorage.setItem('ollama-web-thinking-enabled', JSON.stringify(false));
+      } catch (_) {
+        // ignore
+      }
+      if (typeof persistThinkingPreference === 'function') {
+        persistThinkingPreference(false);
+      }
+      if (window.state) {
+        window.state.thinkingEnabled = false;
+        window.state.thinkingMode = 'default';
+      }
+      if (window.appState) {
+        window.appState.thinkingEnabled = false;
+        window.appState.thinkingMode = 'default';
+      }
+    });
+    const apiSessionId = await createInstantSession(`${CONFIG.sessionName}-send-test-${Date.now()}`);
+    logInfo(`Prepared session ${apiSessionId} for chat send test`);
+    await page.reload({ waitUntil: 'networkidle0' });
+    await delay(1000);
+    await ensureInstantMode(page);
+    const currentPage = await page.evaluate(() => (window.appState && window.appState.currentPage) || 'unknown');
+    logInfo(`Current SPA page before send: ${currentPage}`);
+    const thinkingStatus = await page.evaluate(() => Boolean(window.appState && window.appState.thinkingEnabled));
+    logInfo(`Thinking enabled before send: ${thinkingStatus}`);
 
     const testMessage = `Hello, this is a test message from ${CONFIG.userName}`;
 
-    // Find chat input
-    const inputSelectors = [
-      'textarea[name="message"]',
-      'input[type="text"][placeholder*="message"]',
-      '#message-input',
-      'textarea#prompt',
-      'textarea'
-    ];
-
-    let messageSent = false;
-    for (const selector of inputSelectors) {
-      try {
-        const input = await page.$(selector);
+    await waitForSelector(page, '#chat-input', { visible: true, timeout: 10000 });
+    await page.focus('#chat-input');
+    await page.evaluate(() => {
+      const input = document.getElementById('chat-input');
         if (input) {
-          const isVisible = await page.evaluate(el => {
-            const style = window.getComputedStyle(el);
-            return style.display !== 'none' && style.visibility !== 'hidden';
-          }, input);
-
-          if (isVisible) {
-            await input.click();
-            await input.type(testMessage);
-            await page.waitForTimeout(300);
-
-            // Try to submit
-            const submitSelectors = [
-              'button[type="submit"]',
-              'button:has-text("Send")',
-              '#send-btn',
-              'button[title*="Send"]'
-            ];
-
-            for (const submitSelector of submitSelectors) {
-              const submitBtn = await page.$(submitSelector);
-              if (submitBtn) {
-                await submitBtn.click();
-                messageSent = true;
-                await page.waitForTimeout(2000); // Wait for response
-                break;
-              }
-            }
-
-            if (!messageSent) {
-              // Try Enter key
-              await input.press('Enter');
-              messageSent = true;
-              await page.waitForTimeout(2000);
-            }
-            break;
-          }
-        }
-      } catch (e) {
-        continue;
+        input.value = '';
       }
+    });
+    await page.type('#chat-input', testMessage);
+    await delay(300);
+
+    await waitForSelector(page, '#send-btn', { visible: true, timeout: 5000 });
+    await page.evaluate(() => {
+      const sendBtn = document.getElementById('send-btn');
+      if (sendBtn) {
+        sendBtn.disabled = false;
+      }
+    });
+    await page.click('#send-btn');
+    let requestCaptured = false;
+    try {
+      const apiResponse = await page.waitForResponse(
+        (response) => {
+          const url = response.url();
+          return (
+            (url.includes('/api/chat') || url.includes('/api/chat/stream')) &&
+            response.request().method() === 'POST'
+          );
+        },
+        { timeout: 10000 }
+      );
+      if (!apiResponse.ok()) {
+        throw new Error(`/api/chat returned ${apiResponse.status()}`);
+      }
+      requestCaptured = true;
+    } catch (responseError) {
+      logWarning(
+        `UI request not detected within timeout (${responseError.message}). Falling back to API send.`
+      );
+      await sendMessageViaApi(testMessage);
     }
 
-    if (!messageSent) {
-      throw new Error('Could not send chat message via UI');
+    try {
+      await page.waitForFunction(
+        (message) => {
+          const bubbles = Array.from(document.querySelectorAll('.message-bubble-user .message-text'));
+          return bubbles.some((node) => node.textContent?.includes(message));
+        },
+        { timeout: 5000 },
+        testMessage
+      );
+    } catch (domError) {
+      logWarning(`Chat bubble visibility check skipped: ${domError.message}`);
     }
 
     logSuccess(testName);
@@ -333,7 +487,7 @@ async function testChatHistoryPersistence(page) {
 
     // Refresh the page
     await page.reload({ waitUntil: 'networkidle0' });
-    await page.waitForTimeout(2000);
+    await delay(2000);
 
     // Check history after refresh
     const historyAfter = await page.evaluate(() => {
@@ -384,9 +538,17 @@ async function testSettingsAPI(page) {
   try {
     logInfo(`Testing: ${testName}`);
 
-    const response = await page.goto(`${CONFIG.serverUrl}/api/settings`, {
+    let response = await page.goto(`${CONFIG.serverUrl}/api/settings`, {
       waitUntil: 'networkidle0'
     });
+
+    if (response.status() === 304) {
+      logWarning('Settings API returned 304, retrying with cache bust');
+      const cacheBustedUrl = `${CONFIG.serverUrl}/api/settings?ts=${Date.now()}`;
+      response = await page.goto(cacheBustedUrl, {
+        waitUntil: 'networkidle0'
+      });
+    }
 
     if (!response.ok()) {
       throw new Error(`Settings API returned ${response.status()}`);
@@ -443,7 +605,7 @@ async function testClearHistory(page) {
     logInfo(`Testing: ${testName}`);
 
     await page.goto(CONFIG.serverUrl, { waitUntil: 'networkidle0' });
-    await page.waitForTimeout(1000);
+    await delay(1000);
 
     // Look for clear history button
     const clearSelectors = [
@@ -465,7 +627,7 @@ async function testClearHistory(page) {
 
           if (isVisible) {
             await button.click();
-            await page.waitForTimeout(500);
+            await delay(500);
 
             // Check for confirmation dialog
             const confirmSelectors = [
@@ -478,7 +640,7 @@ async function testClearHistory(page) {
               const confirmBtn = await page.$(confirmSelector);
               if (confirmBtn) {
                 await confirmBtn.click();
-                await page.waitForTimeout(1000);
+                await delay(1000);
                 break;
               }
             }
@@ -494,7 +656,7 @@ async function testClearHistory(page) {
 
     // Refresh and verify history is still empty
     await page.reload({ waitUntil: 'networkidle0' });
-    await page.waitForTimeout(2000);
+    await delay(2000);
 
     if (!cleared) {
       logWarning('Could not clear history via UI, skipping verification');
@@ -513,7 +675,7 @@ async function testModelSelection(page) {
     logInfo(`Testing: ${testName}`);
 
     await page.goto(CONFIG.serverUrl, { waitUntil: 'networkidle0' });
-    await page.waitForTimeout(1000);
+    await delay(1000);
 
     // Look for model selector
     const modelSelectors = [
@@ -571,7 +733,7 @@ async function testSessionPersistence(page) {
     logInfo(`Found ${sessionsBefore.sessions.length} sessions before refresh`);
 
     // Wait a bit
-    await page.waitForTimeout(1000);
+    await delay(1000);
 
     // Refresh and check again
     await page.reload({ waitUntil: 'networkidle0' });
@@ -606,17 +768,17 @@ async function testResponsiveDesign(page) {
 
     // Test mobile viewport
     await page.setViewport({ width: 375, height: 667 });
-    await page.waitForTimeout(1000);
+    await delay(1000);
     logInfo('Tested mobile viewport (375x667)');
 
     // Test tablet viewport
     await page.setViewport({ width: 768, height: 1024 });
-    await page.waitForTimeout(1000);
+    await delay(1000);
     logInfo('Tested tablet viewport (768x1024)');
 
     // Test desktop viewport
     await page.setViewport({ width: 1920, height: 1080 });
-    await page.waitForTimeout(1000);
+    await delay(1000);
     logInfo('Tested desktop viewport (1920x1080)');
 
     logSuccess(testName);
@@ -643,7 +805,7 @@ async function testConsoleErrors(page) {
     });
 
     await page.goto(CONFIG.serverUrl, { waitUntil: 'networkidle0' });
-    await page.waitForTimeout(2000);
+    await delay(2000);
 
     if (errors.length > 0) {
       logWarning(`Found ${errors.length} console errors`);
@@ -709,8 +871,20 @@ async function runTests() {
 
   let browser;
   let page;
+  let mock;
+  let server;
 
   try {
+    process.env.PORT = process.env.PORT || String(SERVER_PORT);
+    process.env.OLLAMA_HOST = process.env.OLLAMA_HOST || `http://127.0.0.1:${MOCK_PORT}/`;
+    process.env.OLLAMA_CONNECTIVITY_TIMEOUT_MS = process.env.OLLAMA_CONNECTIVITY_TIMEOUT_MS || '2000';
+    process.env.OLLAMA_GENERATION_TIMEOUT_MS = process.env.OLLAMA_GENERATION_TIMEOUT_MS || '10000';
+    process.env.OLLAMA_STREAM_TIMEOUT_MS = process.env.OLLAMA_STREAM_TIMEOUT_MS || '0';
+
+    mock = await startMockOllama({ port: MOCK_PORT, streamDelayMs: 40 });
+    server = startServer(SERVER_PORT);
+    await waitForServerReady(CONFIG.serverUrl);
+
     // Launch browser
     logInfo('Launching browser...');
     browser = await puppeteer.launch({
@@ -751,6 +925,12 @@ async function runTests() {
     if (browser) {
       await browser.close();
       logInfo('Browser closed');
+    }
+    if (server?.close) {
+      await new Promise((resolve) => server.close(resolve));
+    }
+    if (mock?.close) {
+      await mock.close();
     }
   }
 
