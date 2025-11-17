@@ -7,8 +7,93 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="theme-color" content="#3b82f6" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <link rel="manifest" href="/manifest.json" />
     <title>Ollama Web Console</title>
-    <link rel="stylesheet" href="/styles.css?v=4.0" />
+    <link rel="stylesheet" href="/styles.css?bust=1763357008" />
+    <link rel="stylesheet" href="/styles-planning.css?bust=1763357008" />
+    <style>
+      /* INLINE CRITICAL STYLES - CACHE PROOF */
+      .composer-input-wrapper-ultra {
+        display: flex !important;
+        gap: 0.75rem !important;
+        background: #f0f0f0 !important;
+        border: 2px solid #e0e0e0 !important;
+        border-radius: 12px !important;
+        padding: 0.5rem !important;
+      }
+      #send-btn, .send-btn-ultra {
+        width: 40px !important;
+        height: 40px !important;
+        background: #0084ff !important;
+        border-radius: 8px !important;
+      }
+      .message-bubble-user .message-content {
+        background: linear-gradient(135deg, #0084ff 0%, #0066cc 100%) !important;
+        border-radius: 18px !important;
+        padding: 1rem 1.25rem !important;
+        box-shadow: 0 2px 8px rgba(0, 132, 255, 0.2) !important;
+      }
+      .thinking-section {
+        background: linear-gradient(135deg, rgba(59, 130, 246, 0.05) 0%, rgba(59, 130, 246, 0.02) 100%) !important;
+        border: 1px solid rgba(59, 130, 246, 0.2) !important;
+        border-left: 4px solid #0084ff !important;
+        border-radius: 8px !important;
+        padding: 1rem !important;
+      }
+      .message-avatar.user {
+        background: linear-gradient(135deg, #0084ff 0%, #0066cc 100%) !important;
+      }
+
+      /* SIDEBAR TEXT VISIBILITY FIX - NUCLEAR OPTION */
+      /* Force dark text on ALL sidebar elements in light mode */
+      body:not([data-theme='dark']) .sidebar-ultra,
+      body:not([data-theme='dark']) .sidebar-ultra *,
+      body:not([data-theme='dark']) .sidebar-section-ultra,
+      body:not([data-theme='dark']) .sidebar-section-ultra *,
+      body:not([data-theme='dark']) .sidebar-btn-ultra,
+      body:not([data-theme='dark']) .sidebar-btn-ultra *,
+      body:not([data-theme='dark']) .sidebar-btn-ultra span,
+      body:not([data-theme='dark']) .sidebar-btn-highlight,
+      body:not([data-theme='dark']) .sidebar-btn-highlight *,
+      body:not([data-theme='dark']) .sidebar-btn-secondary,
+      body:not([data-theme='dark']) .sidebar-btn-secondary *,
+      body:not([data-theme='dark']) .sidebar-button-stack,
+      body:not([data-theme='dark']) .sidebar-button-stack *,
+      body:not([data-theme='dark']) .session-group-title-ultra,
+      body:not([data-theme='dark']) .logo-ultra {
+        color: #0f172a !important;
+      }
+
+      /* Force SVG stroke colors */
+      body:not([data-theme='dark']) .sidebar-btn-ultra svg,
+      body:not([data-theme='dark']) .sidebar-btn-ultra svg *,
+      body:not([data-theme='dark']) .sidebar-btn-highlight svg,
+      body:not([data-theme='dark']) .sidebar-btn-highlight svg *,
+      body:not([data-theme='dark']) .sidebar-btn-secondary svg,
+      body:not([data-theme='dark']) .sidebar-btn-secondary svg * {
+        stroke: #0f172a !important;
+        fill: none !important;
+      }
+
+      /* Ensure buttons remain visible on hover */
+      body:not([data-theme='dark']) .sidebar-btn-ultra:hover,
+      body:not([data-theme='dark']) .sidebar-btn-ultra:hover *,
+      body:not([data-theme='dark']) .sidebar-btn-highlight:hover,
+      body:not([data-theme='dark']) .sidebar-btn-highlight:hover *,
+      body:not([data-theme='dark']) .sidebar-btn-secondary:hover,
+      body:not([data-theme='dark']) .sidebar-btn-secondary:hover * {
+        color: #0066cc !important;
+      }
+
+      /* Session items text visibility */
+      body:not([data-theme='dark']) .session-item-ultra,
+      body:not([data-theme='dark']) .session-item-ultra * {
+        color: #0f172a !important;
+      }
+    </style>
   </head>
   <body>
     <!-- Minimal App Structure - Claude.ai/ChatGPT Style -->
@@ -18,386 +103,980 @@
       </main>
     </div>
 
-    <template id="chat-page">
-      <!-- Ultra-Modern Layout: Claude.ai/ChatGPT Style -->
-      <div class="app-container-ultra">
-        <!-- Redesigned Sidebar: All Controls Inside -->
-        <aside class="sidebar-ultra" id="chat-sidebar">
-          <!-- Logo & New Chat -->
-          <div class="sidebar-top">
-            <div class="sidebar-logo">
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
+    <!-- Hidden compatibility elements -->
+    <div style="display: none;">
+      <nav id="page-nav"></nav>
+    </div>
+
+    <!-- HOME PAGE TEMPLATE - Mode Selection Landing Page -->
+    <template id="home-page">
+      <div class="home-page-container">
+        <!-- Header with Logo and Settings -->
+        <div class="home-header">
+          <div class="home-logo">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
+            </svg>
+            <h1>Ollama Web</h1>
+          </div>
+          <button id="home-settings-btn" class="home-settings-btn" title="Settings">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>
+            </svg>
+          </button>
+        </div>
+
+        <!-- Welcome Message -->
+        <div class="home-welcome">
+          <h2>Choose Your Interface</h2>
+          <p>Select the mode that best fits your workflow</p>
+        </div>
+
+        <!-- Mode Selection Cards -->
+        <div class="mode-cards-container">
+          <!-- Instant Prompt Mode Card -->
+          <div class="mode-card" id="instant-mode-card" data-mode="instant">
+            <div class="mode-card-icon instant-icon">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="13,2 3,14 12,14 11,22 21,10 12,10 13,2"/>
               </svg>
-              <span class="logo-text">Ollama</span>
             </div>
-            <button id="new-chat-btn-ultra" class="new-chat-ultra">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <path d="M12 5v14M5 12h14"/>
+            <h3>Instant Prompt</h3>
+            <p>Quick responses for immediate questions and tasks</p>
+            <ul class="mode-features">
+              <li>Fast, streamlined interface</li>
+              <li>Direct chat with AI models</li>
+              <li>Image upload support</li>
+              <li>Perfect for quick queries</li>
+            </ul>
+            <button class="mode-select-btn instant-btn" data-mode="instant">
+              <span>Start Instant Mode</span>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="5,12 19,12"/><polyline points="12,5 19,12 12,19"/>
               </svg>
-              <span>New chat</span>
             </button>
           </div>
 
-          <!-- Search Bar -->
-          <div class="sidebar-search">
-            <div class="search-container">
-              <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
+          <!-- Planning Mode Card -->
+          <div class="mode-card" id="planning-mode-card" data-mode="planning">
+            <div class="mode-card-icon planning-icon">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/>
               </svg>
-              <input type="text" id="chat-search" class="search-input" placeholder="Search conversations..." />
-              <button id="search-clear" class="search-clear" style="display: none;">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                </svg>
-              </button>
             </div>
-          </div>
-
-          <!-- New Chat Button -->
-          <div class="sidebar-actions">
-            <button id="new-chat-btn" class="new-chat-btn-modern">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 5v14M5 12h14"/>
+            <h3>Planning Interface</h3>
+            <p>Structured, AI-guided planning conversations</p>
+            <ul class="mode-features">
+              <li>4-step guided workflow</li>
+              <li>AI-driven question flow</li>
+              <li>Context gathering & refinement</li>
+              <li>Smart data selection</li>
+            </ul>
+            <button class="mode-select-btn planning-btn" data-mode="planning">
+              <span>Start Planning Mode</span>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="5,12 19,12"/><polyline points="12,5 19,12 12,19"/>
               </svg>
-              <span>Start New Conversation</span>
             </button>
           </div>
+        </div>
 
-          <!-- Sessions Content -->
-          <div class="sidebar-content-modern">
-            <!-- Quick Filters -->
-            <div class="session-filters">
-              <button class="filter-btn active" data-filter="all">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-                </svg>
-                All
-              </button>
-              <button class="filter-btn" data-filter="today">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/>
-                </svg>
-                Today
-              </button>
-              <button class="filter-btn" data-filter="week">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
-                </svg>
-                Week
-              </button>
-            </div>
-
-            <!-- Sessions List -->
-            <div class="sessions-container">
-              <div id="sessions-today" class="session-group">
-                <div class="session-group-header">
-                  <span class="group-title">Today</span>
-                  <span class="group-count">0</span>
-                </div>
-                <div class="session-group-list"></div>
-              </div>
-
-              <div id="sessions-yesterday" class="session-group">
-                <div class="session-group-header">
-                  <span class="group-title">Yesterday</span>
-                  <span class="group-count">0</span>
-                </div>
-                <div class="session-group-list"></div>
-              </div>
-
-              <div id="sessions-week" class="session-group">
-                <div class="session-group-header">
-                  <span class="group-title">This Week</span>
-                  <span class="group-count">0</span>
-                </div>
-                <div class="session-group-list"></div>
-              </div>
-
-              <div id="sessions-older" class="session-group">
-                <div class="session-group-header">
-                  <span class="group-title">Older</span>
-                  <span class="group-count">0</span>
-                </div>
-                <div class="session-group-list"></div>
-              </div>
-            </div>
-
-            <!-- Empty State -->
-            <div id="sessions-empty" class="sessions-empty" style="display: none;">
-              <div class="empty-icon">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-                </svg>
-              </div>
-              <h4 class="empty-title">No conversations yet</h4>
-              <p class="empty-message">Start a new conversation to get began</p>
+        <!-- Quick Info Section -->
+        <div class="home-info-section">
+          <div class="info-card">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
+            </svg>
+            <div>
+              <h4>Powered by Ollama</h4>
+              <p>Local and cloud AI models</p>
             </div>
           </div>
-
-          <!-- Legacy Session List (for backward compatibility) -->
-          <div id="chat-sessions-list" class="chat-sessions-list" style="display: none;"></div>
-        </aside>
-
-        <!-- Main chat area -->
-        <main class="chat-main">
-          <div class="chat-header-modern">
-            <div class="chat-header-content">
-              <!-- Left Section -->
-              <div class="chat-header-left">
-                <button id="sidebar-toggle-mobile" class="header-action-btn mobile-only" aria-label="Toggle sidebar">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M3 12h18M3 6h18M3 18h18"/>
-                  </svg>
-                </button>
-                <div class="chat-identity">
-                  <div class="chat-avatar">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
-                    </svg>
-                  </div>
-                  <div class="chat-info">
-                    <h2 id="chat-title" class="chat-title">Chat Assistant</h2>
-                    <div class="chat-status">
-                      <span id="preset-indicator" class="status-badge">General Assistant</span>
-                      <span class="status-dot"></span>
-                      <span id="connection-indicator" class="connection-status">Online</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Right Section -->
-              <div class="chat-header-right">
-                <div class="header-controls">
-                  <!-- Model Selector -->
-                  <div class="control-group">
-                    <label class="control-label">Model</label>
-                    <div class="select-wrapper">
-                      <select id="model-selector" class="control-select"></select>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="6,9 12,15 18,9"/>
-                      </svg>
-                    </div>
-                  </div>
-
-                  <!-- Thinking Toggle -->
-                  <div class="control-group">
-                    <label class="toggle-control">
-                      <input type="checkbox" id="thinking-toggle" class="toggle-input" />
-                      <div class="toggle-slider">
-                        <div class="toggle-knob"></div>
-                      </div>
-                      <span class="toggle-label">Thinking</span>
-                    </label>
-                  </div>
-
-                  <!-- Structured Prompts Toggle -->
-                  <div class="control-group">
-                    <label class="toggle-control">
-                      <input type="checkbox" id="structured-prompt-toggle" class="toggle-input" checked />
-                      <div class="toggle-slider">
-                        <div class="toggle-knob"></div>
-                      </div>
-                      <span class="toggle-label">Structured</span>
-                    </label>
-                  </div>
-
-                  <!-- Theme Toggle -->
-                  <button id="theme-toggle" class="header-action-btn" aria-label="Toggle theme">
-                    <svg class="theme-icon-light" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
-                    </svg>
-                    <svg class="theme-icon-dark" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: none;">
-                      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-                    </svg>
-                  </button>
-
-                  <!-- Menu Button -->
-                  <button id="chat-menu-btn" class="header-action-btn" aria-label="Chat options">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/>
-                    </svg>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <!-- Progress Bar for Loading States -->
-            <div id="header-progress" class="header-progress">
-              <div class="progress-bar"></div>
+          <div class="info-card">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.29,7 12,12 20.71,7"/><line x1="12" y1="22" x2="12" y2="12"/>
+            </svg>
+            <div>
+              <h4>Switch Anytime</h4>
+              <p>Change modes during your session</p>
             </div>
           </div>
-
-          <!-- Dropdown menu for chat options -->
-          <div id="chat-menu" class="chat-menu" style="display: none;">
-            <button id="refresh-history" class="menu-item">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
-              </svg>
-              Refresh History
-            </button>
-            <button id="clear-history" class="menu-item">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-              </svg>
-              Clear History
-            </button>
-            <div class="menu-divider"></div>
-            <div class="menu-section">
-              <label class="menu-label">Instruction Preset</label>
-              <select id="chat-instruction-preset-select" class="menu-select">
-                <option value="">Custom / manual</option>
-              </select>
-              <button type="button" id="chat-instruction-preset-apply" class="menu-btn">Apply Preset</button>
-              <p id="chat-instruction-preset-description" class="menu-description"></p>
+          <div class="info-card">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            <div>
+              <h4>Privacy First</h4>
+              <p>Your data stays local</p>
             </div>
           </div>
+        </div>
 
-          <section id="ai-disclosure" class="ai-disclosure" role="status" aria-live="polite">
-            <div class="ai-disclosure-copy">
-              <p class="ai-disclosure-title">Local AI Assistant</p>
-              <p id="ai-disclosure-message" class="muted small-text"></p>
-            </div>
-            <button type="button" id="ai-disclosure-toggle" class="ghost-btn ghost-sm">
-              View instructions
-            </button>
-          </section>
-
-          <div id="chat-quick-actions" class="chat-quick-actions" role="group" aria-label="Suggested prompts"></div>
-
-          <div id="chat-history" class="chat-history"></div>
-
-          <!-- Typing Indicator -->
-          <div id="typing-indicator" class="typing-indicator" style="display: none;">
-            <div class="typing-bubble">
-              <div class="typing-avatar">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
-                </svg>
-              </div>
-              <div class="typing-content">
-                <div class="typing-dots">
-                  <span class="dot"></span>
-                  <span class="dot"></span>
-                  <span class="dot"></span>
-                </div>
-                <span class="typing-text">Assistant is thinking...</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Modern Composer -->
-          <div class="composer-modern">
-            <div class="composer-container">
-              <!-- Attachment Preview (for future file uploads) -->
-              <div id="attachment-preview" class="attachment-preview" style="display: none;">
-                <div class="attachment-list">
-                  <!-- Attachments will be inserted here -->
-                </div>
-              </div>
-
-              <!-- Main Input Area -->
-              <div class="composer-input-area">
-                <div class="input-wrapper">
-                  <!-- Auto-expanding textarea -->
-                  <textarea
-                    id="chat-input"
-                    class="message-input"
-                    placeholder="Type your message..."
-                    aria-label="Chat message"
-                    rows="1"
-                  ></textarea>
-
-                  <!-- Input Actions -->
-                  <div class="input-actions">
-                    <!-- Attachment Button (for future) -->
-                    <button id="attach-btn" class="input-action-btn" aria-label="Attach file" style="display: none;">
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66L9.64 16.2a2 2 0 0 1-2.83-2.83l8.49-8.4"/>
-                      </svg>
-                    </button>
-
-                    <!-- Send Button -->
-                    <button id="send-btn" class="send-btn" aria-label="Send message" disabled>
-                      <svg class="send-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22,2 15,22 11,13 2,9 22,2"/>
-                      </svg>
-                      <div class="loading-spinner" style="display: none;">
-                        <div class="spinner-ring"></div>
-                      </div>
-                    </button>
-                  </div>
-                </div>
-
-                <!-- Bottom Actions -->
-                <div class="composer-footer">
-                  <div class="composer-stats">
-                    <span id="char-counter" class="char-counter">0 / 4000</span>
-                  </div>
-
-                  <div class="composer-options">
-                    <button id="format-help" class="option-btn" aria-label="Formatting help">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-                      </svg>
-                    </button>
-
-                    <span class="option-divider">|</span>
-
-                    <span class="send-shortcut">⌘ + Enter to send</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Enhanced Status Display -->
-            <div class="composer-status">
-              <div id="chat-error" class="status-message error-message" style="display: none;">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
-                </svg>
-                <span class="message-text"></span>
-              </div>
-
-              <div id="thinking-status" class="status-message thinking-message" style="display: none;">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>
-                </svg>
-                <span class="message-text"></span>
-              </div>
-
-              <div id="connection-status" class="status-message connection-message" style="display: none;">
-                <div class="connection-indicator"></div>
-                <span class="message-text">Connecting...</span>
-              </div>
-            </div>
-
-            <!-- Session Instructions Preview -->
-            <div id="session-instructions-preview" class="instructions-preview" style="display: none;">
-              <div class="instructions-content">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/>
-                </svg>
-                <span class="instructions-text"></span>
-              </div>
-            </div>
-          </div>
-        </main>
+        <!-- Footer -->
+        <div class="home-footer">
+          <p>Version 2.0 • Dual-Interface AI Assistant</p>
+        </div>
       </div>
     </template>
 
+    <!-- PLANNING PAGE TEMPLATE - Split-Pane Layout -->
+    <template id="planning-page">
+      <div class="planning-page-container">
+        <!-- Header with Mode Badge -->
+        <div class="planning-header">
+          <div class="planning-header-left">
+            <div class="mode-badge planning-badge">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/>
+              </svg>
+              <span>Planning Mode</span>
+            </div>
+            <h2 id="planning-session-name">Planning Session</h2>
+          </div>
+          <div class="planning-header-right">
+            <button id="planning-switch-instant-btn" class="header-action-btn">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="13,2 3,14 12,14 11,22 21,10 12,10 13,2"/>
+              </svg>
+              <span>Switch to Instant</span>
+            </button>
+            <button id="planning-settings-btn" class="header-action-btn">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Split-pane Container -->
+        <div class="planning-split-container">
+          <!-- Left Pane: Q&A Interface -->
+          <div class="planning-left-pane">
+            <!-- Progress Indicator -->
+            <div class="planning-progress-bar">
+              <div class="progress-step active" data-step="1">
+                <div class="step-number">1</div>
+                <div class="step-label">Objective</div>
+              </div>
+              <div class="progress-connector"></div>
+              <div class="progress-step" data-step="2">
+                <div class="step-number">2</div>
+                <div class="step-label">Context</div>
+              </div>
+              <div class="progress-connector"></div>
+              <div class="progress-step" data-step="3">
+                <div class="step-number">3</div>
+                <div class="step-label">Constraints</div>
+              </div>
+              <div class="progress-connector"></div>
+              <div class="progress-step" data-step="4">
+                <div class="step-number">4</div>
+                <div class="step-label">Verification</div>
+              </div>
+            </div>
+
+            <!-- Conversation Area -->
+            <div class="planning-conversation" id="planning-conversation">
+              <!-- AI questions and user answers appear here -->
+              <div class="planning-welcome">
+                <h3>Welcome to Planning Mode</h3>
+                <p>I'll guide you through a structured planning process with 4 key steps. This helps create comprehensive, well-thought-out prompts.</p>
+                <button id="planning-start-btn" class="planning-start-btn">Start Planning</button>
+              </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="planning-input-area">
+              <div class="planning-attachments" id="planning-attachments">
+                <!-- Image previews appear here -->
+              </div>
+              <div class="planning-composer">
+                <textarea
+                  id="planning-input"
+                  class="planning-textarea"
+                  placeholder="Type your answer here..."
+                  rows="3"
+                ></textarea>
+                <div class="planning-composer-actions">
+                  <button id="planning-image-btn" class="composer-icon-btn" title="Add images">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
+                    </svg>
+                  </button>
+                  <input type="file" id="planning-image-input" accept="image/*" multiple style="display: none;" />
+                  <button id="planning-submit-btn" class="planning-submit-btn">
+                    <span>Next Step</span>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polyline points="5,12 19,12"/><polyline points="12,5 19,12 12,19"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right Pane: Summary & Preview -->
+          <div class="planning-right-pane">
+            <!-- Summary Cards -->
+            <div class="planning-summary-section">
+              <h3 class="pane-section-title">Planning Summary</h3>
+
+              <div class="summary-card" id="summary-objective">
+                <div class="summary-card-header">
+                  <span class="summary-card-icon">🎯</span>
+                  <span class="summary-card-title">Objective</span>
+                </div>
+                <div class="summary-card-content">Not yet defined</div>
+              </div>
+
+              <div class="summary-card" id="summary-context">
+                <div class="summary-card-header">
+                  <span class="summary-card-icon">📝</span>
+                  <span class="summary-card-title">Context</span>
+                </div>
+                <div class="summary-card-content">Not yet defined</div>
+              </div>
+
+              <div class="summary-card" id="summary-constraints">
+                <div class="summary-card-header">
+                  <span class="summary-card-icon">⚠️</span>
+                  <span class="summary-card-title">Constraints</span>
+                </div>
+                <div class="summary-card-content">None specified</div>
+              </div>
+
+              <div class="summary-card" id="summary-verification">
+                <div class="summary-card-header">
+                  <span class="summary-card-icon">✓</span>
+                  <span class="summary-card-title">Verification</span>
+                </div>
+                <div class="summary-card-content">None specified</div>
+              </div>
+
+              <div class="summary-card" id="summary-images" style="display: none;">
+                <div class="summary-card-header">
+                  <span class="summary-card-icon">🖼️</span>
+                  <span class="summary-card-title">Images</span>
+                </div>
+                <div class="summary-card-content" id="summary-images-list">No images</div>
+              </div>
+            </div>
+
+            <!-- Prompt Preview -->
+            <div class="planning-preview-section">
+              <h3 class="pane-section-title">Generated Prompt Preview</h3>
+              <div class="prompt-preview" id="prompt-preview">
+                <div class="prompt-preview-placeholder">
+                  Complete the planning steps to see your generated prompt here.
+                </div>
+              </div>
+              <div class="prompt-preview-stats" id="prompt-stats">
+                <span>0 characters</span>
+                <span>•</span>
+                <span>~0 tokens</span>
+              </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="planning-actions-section">
+              <button id="planning-save-draft-btn" class="planning-action-btn secondary" disabled>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>
+                </svg>
+                <span>Save Draft</span>
+              </button>
+              <button id="planning-transfer-btn" class="planning-action-btn primary" disabled>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="13,2 3,14 12,14 11,22 21,10 12,10 13,2"/>
+                </svg>
+                <span>Transfer to Instant</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <template id="chat-page">
+<!-- Ultra-Modern Chat Template: Claude.ai/ChatGPT Style -->
+<div class="app-ultra">
+
+  <!-- Modern Sidebar: All Controls & Navigation Inside -->
+  <aside class="sidebar-ultra" id="chat-sidebar">
+
+    <!-- Top: Logo + New Chat -->
+    <div class="sidebar-header-ultra">
+      <div class="logo-ultra">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
+        </svg>
+        <span>Ollama</span>
+      </div>
+      <button id="new-chat-btn" class="btn-new-chat-ultra">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
+      </button>
+    </div>
+
+    <section class="sidebar-section-ultra">
+      <p class="sidebar-section-label">Sessions</p>
+      <div class="sessions-ultra">
+        <div id="sessions-today" class="session-group-ultra">
+          <div class="session-group-title-ultra">Today</div>
+          <div class="session-list-ultra"></div>
+        </div>
+        <div id="sessions-yesterday" class="session-group-ultra">
+          <div class="session-group-title-ultra">Yesterday</div>
+          <div class="session-list-ultra"></div>
+        </div>
+        <div id="sessions-week" class="session-group-ultra">
+          <div class="session-group-title-ultra">Previous 7 Days</div>
+          <div class="session-list-ultra"></div>
+        </div>
+        <div id="sessions-older" class="session-group-ultra">
+          <div class="session-group-title-ultra">Previous 30 Days</div>
+          <div class="session-list-ultra"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- QUICK ACCESS PANEL -->
+    <section class="sidebar-section-ultra sidebar-section-primary">
+      <div class="sidebar-button-stack">
+        <button id="nav-models-ultra" class="sidebar-btn-ultra sidebar-btn-highlight">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
+          <span>Models</span>
+        </button>
+
+        <button id="nav-prompts-ultra" class="sidebar-btn-ultra sidebar-btn-highlight">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/>
+          </svg>
+          <span>Prompts</span>
+        </button>
+
+        <button id="nav-history-ultra" class="sidebar-btn-ultra sidebar-btn-highlight">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/>
+          </svg>
+          <span>History</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- QUICK SETTINGS -->
+    <section class="sidebar-section-ultra sidebar-section-compact">
+      <div class="sidebar-button-stack">
+        <button id="nav-options-ultra" class="sidebar-btn-ultra sidebar-btn-secondary">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v10"/>
+          </svg>
+          <span>Quick Options</span>
+        </button>
+
+        <button id="nav-settings-ultra" class="sidebar-btn-ultra sidebar-btn-secondary">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>
+          </svg>
+          <span>Full Settings</span>
+        </button>
+
+        <button id="theme-toggle" class="sidebar-btn-ultra sidebar-btn-secondary">
+          <svg class="theme-icon-light" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+          </svg>
+          <svg class="theme-icon-dark" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: none;">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+          </svg>
+          <span class="theme-label-light">Dark Mode</span>
+          <span class="theme-label-dark" style="display: none;">Light Mode</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Hidden elements for compatibility -->
+    <div style="display: none;">
+      <div id="chat-sessions-list"></div>
+      <input type="text" id="chat-search" />
+      <button id="search-clear"></button>
+      <button id="sidebar-toggle"></button>
+      <span id="session-count"></span>
+    </div>
+  </aside>
+
+  <!-- Main Chat Area -->
+  <main class="chat-area-ultra">
+
+    <!-- Mobile Sidebar Toggle (Top-Left Corner Only) -->
+    <button
+      id="sidebar-toggle-mobile"
+      class="mobile-toggle-ultra"
+      aria-label="Toggle sidebar menu"
+      aria-controls="chat-sidebar"
+      aria-expanded="false"
+    >
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M3 12h18M3 6h18M3 18h18"/>
+      </svg>
+    </button>
+
+    <div class="chat-content-container">
+      <header class="chat-session-header-modern" aria-live="polite">
+        <div class="session-header-card">
+          <div class="session-header-main">
+            <div class="session-badge">Active Session</div>
+            <h1 id="chat-meta-session" class="session-title-modern">--</h1>
+            <p id="chat-meta-subtitle" class="session-subtitle-modern"></p>
+          </div>
+          <div class="session-header-meta">
+            <div class="meta-pill-modern mode-indicator-pill" id="meta-mode-pill">
+              <svg class="mode-icon-instant" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="13,2 3,14 12,14 11,22 21,10 12,10 13,2"/>
+              </svg>
+              <svg class="mode-icon-planning" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;">
+                <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/>
+              </svg>
+              <span id="mode-label-text">Instant Mode</span>
+            </div>
+            <button id="chat-mode-switch-btn" class="meta-pill-modern meta-pill-button" title="Switch mode">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+                <polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+              </svg>
+              <span id="switch-mode-label">Switch to Planning</span>
+            </button>
+            <div class="meta-pill-modern" id="meta-model-pill">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
+              </svg>
+              <span>--</span>
+            </div>
+            <div class="meta-pill-modern" id="meta-thinking-pill">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 2a3 3 0 0 0-3 3v1a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
+                <circle cx="12" cy="16" r="2"/>
+              </svg>
+              <span>MAX</span>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div class="chat-control-row-modern">
+        <label class="chat-control-field-modern">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
+          <span>Model</span>
+          <select id="chat-page-model-selector"></select>
+        </label>
+        <button id="planning-mode-toggle" class="planning-mode-btn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/>
+            <path d="M12 18v-6M9 15l3-3 3 3"/>
+          </svg>
+          <span>Planning Mode</span>
+        </button>
+      </div>
+
+      <!-- Hidden elements for compatibility -->
+      <div style="display: none;">
+        <select id="chat-page-preset-selector"></select>
+        <p id="chat-preset-description"></p>
+        <span id="meta-preset-pill"></span>
+        <div class="session-header-pills"></div>
+        <p class="session-eyebrow"></p>
+        <h1 class="session-title"></h1>
+        <p class="session-subtitle"></p>
+      </div>
+
+      <section id="chat-empty-hero" class="chat-empty-hero" aria-live="polite" aria-hidden="true" hidden>
+        <div class="chat-empty-copy">
+          <p class="hero-eyebrow">Welcome back</p>
+          <h2>What should we tackle today?</h2>
+          <p class="hero-paragraph">
+            Share a goal, paste requirements, or drop a repo summary. I'll walk through discovery,
+            implementation, and verification while keeping thinking visible.
+          </p>
+          <ul class="hero-highlights">
+            <li>Live thinking feed before every answer</li>
+            <li>Session-specific instructions &amp; attachments</li>
+            <li>Quick prompts to jumpstart the conversation</li>
+          </ul>
+        </div>
+        <div class="chat-empty-actions">
+          <div class="hero-session-chip" id="hero-session-pill">Session: --</div>
+          <div class="quick-actions-grid" id="chat-quick-actions"></div>
+        </div>
+      </section>
+
+      <!-- Chat Messages -->
+      <div id="chat-history" class="chat-history-ultra"></div>
+
+      <!-- Typing Indicator -->
+      <div
+        id="typing-indicator"
+        class="typing-indicator-ultra"
+        role="status"
+        aria-live="polite"
+        aria-hidden="true"
+        aria-busy="false"
+        style="display: none;"
+      >
+        <div class="typing-content-ultra">
+          <div class="typing-dots-ultra" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </div>
+          <span class="typing-text-ultra">Assistant is thinking...</span>
+        </div>
+      </div>
+      <div id="phase-gate-banner" class="phase-gate-banner" hidden>
+        <div class="phase-gate-copy">
+          <p class="phase-gate-label">Planning required</p>
+          <p class="phase-gate-text">
+            Complete the planning checklist and tap Done to unlock execution for this session.
+          </p>
+        </div>
+        <div class="phase-gate-actions">
+          <button type="button" id="phase-gate-open-planning" class="ghost-btn">Open planning</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modern Floating Composer - Redesigned -->
+    <div class="composer-ultra" role="region" aria-label="Message composer">
+      <div class="composer-container-ultra">
+        <!-- Image Preview Area -->
+        <div id="image-preview-container" class="image-preview-container" style="display: none;" role="region" aria-label="Image attachments">
+          <div id="image-preview-list" class="image-preview-list" role="list"></div>
+        </div>
+
+        <!-- Main Input Area -->
+        <div class="composer-input-wrapper-ultra">
+          <div class="composer-input-inner">
+            <textarea
+              id="chat-input"
+              class="input-ultra"
+              placeholder="Type your message..."
+              aria-label="Chat message input"
+              aria-describedby="char-counter"
+              rows="1"
+              autocomplete="off"
+              spellcheck="true"
+            ></textarea>
+
+            <!-- Action Buttons Group -->
+            <div class="composer-actions" role="toolbar" aria-label="Message actions">
+              <!-- Hidden file input -->
+              <input
+                type="file"
+                id="image-upload-input"
+                accept="image/*"
+                multiple
+                style="display: none;"
+                aria-label="Upload images"
+              />
+
+              <!-- Image upload button -->
+              <button 
+                id="image-upload-btn" 
+                class="composer-action-btn" 
+                type="button"
+                aria-label="Attach images" 
+                title="Upload images (Ctrl+U)"
+                data-action="upload"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                  <circle cx="8.5" cy="8.5" r="1.5"/>
+                  <polyline points="21 15 16 10 5 21"/>
+                </svg>
+              </button>
+
+              <!-- Screenshot capture button -->
+              <button
+                id="screenshot-capture-btn"
+                class="composer-action-btn"
+                type="button"
+                aria-label="Capture screenshot"
+                title="Capture screenshot (Ctrl+Shift+S)"
+                data-action="screenshot"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <rect x="3" y="5" width="18" height="14" rx="2" ry="2"/>
+                  <path d="M8 5l1.5-2h5L16 5"/>
+                  <circle cx="12" cy="12" r="3"/>
+                </svg>
+              </button>
+
+              <!-- Send button -->
+              <button 
+                id="send-btn" 
+                class="send-btn-ultra" 
+                type="submit"
+                aria-label="Send message" 
+                aria-disabled="true"
+                disabled
+                data-action="send"
+              >
+                <svg class="send-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+                </svg>
+                <div class="loading-spinner" style="display: none;" aria-hidden="true">
+                  <div class="spinner-ring"></div>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer Status Bar -->
+        <div class="composer-footer-ultra" role="status" aria-live="polite">
+          <div class="composer-footer-left">
+            <span id="char-counter" class="char-count-ultra" aria-label="Character count">0 characters</span>
+            <span id="image-counter" class="image-count-ultra" style="display: none;" aria-label="Image count">0 images</span>
+          </div>
+          <div class="composer-footer-right">
+            <span id="vision-bridge-status" class="vision-status-pill" style="display: none;" aria-label="Vision bridge status"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="model-prep-modal" class="modal-ultra model-prep-modal" style="display: none;">
+      <div class="modal-content-ultra model-prep-content">
+        <div class="modal-header-ultra">
+          <div>
+            <h2>Choose a model for screenshots</h2>
+            <p id="model-prep-reason" class="muted small-text">
+              Select or install a model to unlock image uploads.
+            </p>
+          </div>
+          <button id="model-prep-close" class="modal-close-btn" aria-label="Close dialog">×</button>
+        </div>
+        <div class="model-prep-body">
+          <section class="model-prep-section">
+            <div class="section-heading-row">
+              <h3>Installed models</h3>
+            </div>
+            <div id="model-prep-installed-list" class="model-card-grid"></div>
+          </section>
+
+          <section class="model-prep-section">
+            <div class="section-heading-row">
+              <h3>Suggested local models</h3>
+            </div>
+            <div id="model-prep-suggested-list"></div>
+          </section>
+
+          <section class="model-prep-section">
+            <div class="section-heading-row">
+              <h3>Web / Cloud options</h3>
+            </div>
+            <div id="model-prep-web-list" class="model-card-grid"></div>
+          </section>
+
+          <button id="model-prep-dismiss" class="ghost-btn model-prep-dismiss-btn">Maybe later</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Hidden elements for compatibility -->
+    <div style="display: none;">
+      <div id="ai-disclosure"></div>
+      <div id="ai-disclosure-message"></div>
+      <button id="ai-disclosure-toggle"></button>
+      <div id="chat-error"></div>
+      <div id="thinking-status"></div>
+      <div id="connection-status"></div>
+      <div id="session-instructions-preview"></div>
+      <div id="attachment-preview"></div>
+      <button id="attach-btn"></button>
+      <button id="format-help"></button>
+      <span class="send-shortcut"></span>
+      <div id="chat-title"></div>
+      <div id="preset-indicator"></div>
+      <div id="connection-indicator"></div>
+      <button id="chat-menu-btn"></button>
+      <div id="chat-menu"></div>
+      <button id="refresh-history"></button>
+      <button id="clear-history"></button>
+      <select id="chat-instruction-preset-select"></select>
+      <button id="chat-instruction-preset-apply"></button>
+      <div id="chat-instruction-preset-description"></div>
+      <div id="header-progress"></div>
+    </div>
+  </main>
+
+  <!-- Side Panel Container (Right-side overlay panels) -->
+  <aside id="side-panel-container" class="side-panel-container">
+    <div class="side-panel-backdrop"></div>
+
+    <!-- Prompts Panel -->
+    <div id="prompts-panel" class="side-panel" data-panel="prompts">
+      <div class="side-panel-header">
+        <h2>Saved Prompts</h2>
+        <button class="side-panel-close" aria-label="Close panel">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="side-panel-content">
+        <div class="side-panel-search">
+          <input type="text" id="prompts-search" placeholder="Search prompts..." />
+        </div>
+        <div id="prompts-list" class="side-panel-list">
+          <p class="side-panel-empty">No saved prompts yet.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Models Panel -->
+    <div id="models-panel" class="side-panel" data-panel="models">
+      <div class="side-panel-header">
+        <h2>Available Models</h2>
+        <button class="side-panel-close" aria-label="Close panel">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="side-panel-content">
+        <div id="models-list" class="side-panel-list">
+          <p class="side-panel-loading">Loading models...</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- History Panel -->
+    <div id="history-panel" class="side-panel" data-panel="history">
+      <div class="side-panel-header">
+        <h2>Chat History</h2>
+        <button class="side-panel-close" aria-label="Close panel">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="side-panel-content">
+        <div id="history-list" class="side-panel-list">
+          <p class="side-panel-loading">Loading history...</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Options Panel -->
+    <div id="options-panel" class="side-panel" data-panel="options">
+      <div class="side-panel-header">
+        <h2>Quick Options</h2>
+        <button class="side-panel-close" aria-label="Close panel">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="side-panel-content">
+        <div class="side-panel-options">
+          <div class="option-group">
+            <h3>Display</h3>
+            <label class="option-toggle">
+              <span>Show thinking process</span>
+              <input type="checkbox" id="option-show-thinking" checked />
+              <div class="toggle-switch"></div>
+            </label>
+            <label class="option-toggle">
+              <span>Compact mode</span>
+              <input type="checkbox" id="option-compact-mode" />
+              <div class="toggle-switch"></div>
+            </label>
+          </div>
+          <div class="option-group">
+            <h3>Behavior</h3>
+            <label class="option-toggle">
+              <span>Auto-scroll</span>
+              <input type="checkbox" id="option-auto-scroll" checked />
+              <div class="toggle-switch"></div>
+            </label>
+            <label class="option-toggle">
+              <span>Sound notifications</span>
+              <input type="checkbox" id="option-sound" />
+              <div class="toggle-switch"></div>
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Settings Modal (Hidden by default) -->
+  <div id="settings-modal-ultra" class="modal-ultra" style="display: none;">
+    <div class="modal-content-ultra">
+      <div class="modal-header-ultra">
+        <h2>Settings</h2>
+        <button id="close-settings-ultra" class="close-btn-ultra">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="modal-body-ultra">
+        <!-- SECTION: Model & Behavior -->
+        <div class="settings-section-ultra">
+          <h3 class="section-title-ultra">Model & Behavior</h3>
+
+          <div class="setting-group-ultra">
+            <label class="setting-label-ultra">Active Model</label>
+            <div id="model-selector-container">
+              <select id="model-selector" class="setting-select-ultra">
+                <option>Loading models...</option>
+              </select>
+              <div id="active-model-display" class="status-display-ultra">
+                <small style="color: var(--text-secondary);">Current: <span id="active-model">--</span></small>
+              </div>
+            </div>
+          </div>
+
+          <div id="suggested-models-container" style="margin-top: 1.5rem; padding: 1rem; background: var(--bg-secondary); border-radius: 0.5rem; display: none;">
+            <h4 style="margin: 0 0 0.75rem 0; font-size: 0.9rem; color: var(--text-secondary);">💡 Suggested Models for Your Preset</h4>
+            <div id="suggested-models-list" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
+          </div>
+
+        </div>
+
+        <!-- SECTION: Prompts & Enhancement -->
+        <div class="settings-section-ultra">
+          <h3 class="section-title-ultra">Prompt Processing</h3>
+
+          <div class="setting-group-ultra">
+            <label class="setting-toggle-ultra">
+              <div>
+                <div class="setting-label-ultra">Enforce XML golden schema</div>
+                <div class="setting-description-ultra">Require responses to follow the &lt;response&gt; template (role → discovery → web research → execution → verification)</div>
+              </div>
+              <input type="checkbox" id="structured-prompt-toggle" class="toggle-checkbox-ultra" />
+              <div class="toggle-switch-ultra"></div>
+            </label>
+          </div>
+
+          <div class="setting-group-ultra">
+            <label class="setting-toggle-ultra">
+              <div>
+                <div class="setting-label-ultra">AI Coder Mode</div>
+                <div class="setting-description-ultra">Auto-enhance prompts with discovery→plan→implement→verify workflow</div>
+              </div>
+              <input type="checkbox" id="ai-coder-toggle" class="toggle-checkbox-ultra" checked />
+              <div class="toggle-switch-ultra"></div>
+            </label>
+          </div>
+        </div>
+
+        <!-- SECTION: Instructions -->
+        <div class="settings-section-ultra">
+          <h3 class="section-title-ultra">Instructions & Context</h3>
+
+          <div class="setting-group-ultra">
+            <label class="setting-label-ultra">Session Instructions</label>
+            <select id="chat-instruction-preset-select" class="setting-select-ultra">
+              <option value="">Loading presets...</option>
+            </select>
+            <div id="chat-instruction-preset-description" class="setting-description-ultra" style="margin-top: 0.5rem; padding: 0.75rem; background: var(--bg-primary); border-radius: 0.5rem; border-left: 3px solid var(--accent); font-size: 0.875rem;"></div>
+          </div>
+        </div>
+
+        <!-- SECTION: Connection -->
+        <div class="settings-section-ultra">
+          <h3 class="section-title-ultra">Status</h3>
+
+          <div class="setting-group-ultra">
+            <div class="setting-label-ultra">Connection</div>
+            <div id="connection-status-display" class="status-display-ultra">
+              <span id="connection-status" class="status-badge-ultra">Checking...</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECTION: GitHub Integration -->
+        <div class="settings-section-ultra">
+          <h3 class="section-title-ultra">GitHub Integration</h3>
+
+          <div class="setting-group-ultra">
+            <label class="setting-label-ultra">GitHub Personal Access Token</label>
+            <input type="password" id="github-token-input" class="setting-input-ultra" placeholder="ghp_xxxxxxxxxxxx" />
+            <div class="setting-description-ultra">
+              Create a token at github.com/settings/tokens with 'repo' scope. Saved securely in local storage.
+            </div>
+          </div>
+
+          <div class="setting-group-ultra">
+            <label class="setting-label-ultra">Add Repository</label>
+            <input type="text" id="github-repo-input" class="setting-input-ultra" placeholder="username/repo-name" />
+            <button id="github-connect-btn" class="btn-primary-ultra" type="button">Add Repository</button>
+          </div>
+
+          <div id="github-status" class="status-display-ultra" style="display: none;">
+            <span id="github-status-text"></span>
+          </div>
+
+          <div id="github-repos-container" style="margin-top: 1rem;">
+            <div class="setting-label-ultra" style="margin-bottom: 0.5rem;">Connected Repositories:</div>
+            <div id="github-repos-list" class="github-repos-list" style="display: none;"></div>
+            <div id="github-repos-empty" class="setting-description-ultra">No repositories connected yet.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+    </template>
+
     <template id="settings-page">
+      <div class="app-page-shell">
+      <div class="page-with-nav">
+        <button class="back-to-chat-btn" onclick="window.navigateToPage('chat')">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 12H5M12 19l-7-7 7-7"/>
+          </svg>
+          Back to Chat
+        </button>
+      </div>
       <section class="panel">
         <h2>Settings & Custom Instructions</h2>
         <form id="settings-form" class="settings-form">
+          <div id="settings-feedback" class="settings-feedback" role="alert" aria-live="polite"></div>
           <label>
             Model name
             <input type="text" name="model" required />
           </label>
           <label>
+            Mode
+            <select name="ollamaMode" id="ollama-mode-select">
+              <option value="local">Local (Offline - No API key)</option>
+              <option value="cloud">Cloud (Datacenter GPUs - Requires API key)</option>
+            </select>
+          </label>
+          <div class="settings-help-text" style="margin: -8px 0 16px 0; padding: 8px 12px; background: var(--bg-secondary, #f5f5f5); border-radius: 4px; font-size: 0.9em;">
+            <div id="mode-help-local" style="display: none;">
+              <strong>Local Mode:</strong> Uses models on your device. Works offline, no API key needed.
+            </div>
+            <div id="mode-help-cloud" style="display: none;">
+              <strong>Cloud Mode:</strong> Access 1 Trillion parameter models on Ollama's datacenter GPUs. Requires API key from <a href="https://ollama.com/settings/keys" target="_blank">ollama.com/settings/keys</a>
+            </div>
+          </div>
+          <label id="cloud-api-key-label" style="display: none;">
+            Ollama API Key (for cloud mode)
+            <input type="password" name="ollamaApiKey" id="ollama-api-key-input" placeholder="Your API key from ollama.com" />
+            <small style="display: block; margin-top: 4px; color: #666;">Get your key at <a href="https://ollama.com/settings/keys" target="_blank">ollama.com/settings/keys</a></small>
+          </label>
+          <label>
             Ollama endpoint (OLLAMA_HOST)
-            <input type="url" name="apiEndpoint" placeholder="http://127.0.0.1:11434" />
+            <input type="url" name="apiEndpoint" id="ollama-endpoint-input" placeholder="http://127.0.0.1:11434" />
+            <small id="endpoint-help" style="display: block; margin-top: 4px; color: #666;"></small>
           </label>
           <label>
             Backend base URL (for this UI)
@@ -429,6 +1108,52 @@
             System instructions
             <textarea name="systemInstructions" rows="4"></textarea>
           </label>
+
+          <div class="settings-divider"></div>
+          <h3>Vision bridge</h3>
+          <p class="muted small-text">
+            Automatically summarize screenshots with cloud vision APIs so text-only models receive rich visual context.
+          </p>
+          <label>
+            Vision provider
+            <select name="visionProvider" id="vision-provider-select">
+              <option value="auto">Automatic (prefer configured)</option>
+              <option value="off">Disabled</option>
+              <option value="openai">OpenAI GPT-4o / GPT-4V</option>
+              <option value="anthropic">Anthropic Claude 3 Vision</option>
+              <option value="google">Google Gemini</option>
+            </select>
+          </label>
+          <label>
+            Bridge mode
+            <select name="visionBridgeMode" id="vision-bridge-mode-select">
+              <option value="auto">Auto (text-only models only)</option>
+              <option value="hybrid">Hybrid (send images + summary)</option>
+              <option value="force">Force (always summarize)</option>
+              <option value="off">Off</option>
+            </select>
+          </label>
+          <label>
+            Max description characters
+            <input type="number" name="visionMaxDescriptionChars" min="120" step="20" />
+          </label>
+          <label>
+            Vision description prompt
+            <textarea name="visionDescriptionPrompt" rows="3" placeholder="Explain what the assistant should focus on (warnings, UI layout, etc.)"></textarea>
+          </label>
+          <label>
+            Native vision models (comma separated)
+            <input
+              type="text"
+              name="visionNativeModels"
+              placeholder="llava,qwen-vl,phi3-vision"
+            />
+            <small class="muted small-text">
+              Enter model slugs that already understand images to skip the bridge automatically.
+            </small>
+          </label>
+          <div id="vision-provider-status-details" class="muted small-text"></div>
+
           <button type="submit">Save settings</button>
         </form>
       </section>
@@ -473,9 +1198,19 @@
         </form>
         <pre id="proxy-response" class="panel proxy-response"></pre>
       </section>
+      </div>
     </template>
 
     <template id="history-page">
+      <div class="app-page-shell">
+      <div class="page-with-nav">
+        <button class="back-to-chat-btn" onclick="window.navigateToPage('chat')">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 12H5M12 19l-7-7 7-7"/>
+          </svg>
+          Back to Chat
+        </button>
+      </div>
       <section class="panel">
         <div class="panel-header panel-header-stacked">
           <h2>Server History</h2>
@@ -490,9 +1225,19 @@
         <h2>Local History</h2>
         <div id="local-history"></div>
       </section>
+      </div>
     </template>
 
     <template id="sessions-page">
+      <div class="app-page-shell">
+      <div class="page-with-nav">
+        <button class="back-to-chat-btn" onclick="window.navigateToPage('chat')">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 12H5M12 19l-7-7 7-7"/>
+          </svg>
+          Back to Chat
+        </button>
+      </div>
       <section class="panel">
         <div class="panel-header panel-header-stacked">
           <h2>Saved Sessions</h2>
@@ -537,9 +1282,19 @@
           </div>
         </form>
       </section>
+      </div>
     </template>
 
     <template id="api-page">
+      <div class="app-page-shell">
+      <div class="page-with-nav">
+        <button class="back-to-chat-btn" onclick="window.navigateToPage('chat')">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 12H5M12 19l-7-7 7-7"/>
+          </svg>
+          Back to Chat
+        </button>
+      </div>
       <section class="panel">
         <div class="panel-header panel-header-stacked">
           <h2>API Access</h2>
@@ -580,9 +1335,159 @@
           </table>
         </div>
       </section>
+      </div>
     </template>
 
-    <script src="/app.js" type="module"></script>
+    <template id="planning-page">
+      <div class="app-page-shell planning-shell">
+        <div class="page-with-nav planning-nav">
+          <button class="back-to-chat-btn" onclick="window.navigateToPage('chat')">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M19 12H5M12 19l-7-7 7-7"/>
+            </svg>
+            Back to Chat
+          </button>
+          <div class="planning-status-pill" id="planning-status-pill">Planning phase</div>
+        </div>
+
+        <section class="panel planning-panel">
+          <header class="planning-header">
+            <div>
+              <p class="planning-eyebrow">Discovery workflow</p>
+              <h2>Plan before you execute</h2>
+              <p class="planning-session-label" id="planning-session-label">Session: --</p>
+            </div>
+            <div class="planning-progress" id="planning-progress-steps">
+              <div class="progress-step" data-step="1"><span>1</span>Objective</div>
+              <div class="progress-step" data-step="2"><span>2</span>Context</div>
+              <div class="progress-step" data-step="3"><span>3</span>Constraints</div>
+              <div class="progress-step" data-step="4"><span>4</span>Verification</div>
+            </div>
+          </header>
+
+          <div class="planning-layout">
+            <div class="planning-conversation-pane">
+              <div id="planning-conversation" class="planning-conversation">
+                <div class="planning-welcome">
+                  <p>
+                    I'll gather objectives, context, constraints, and verification details so execution
+                    has everything it needs. Answer what you can—or skip to keep momentum.
+                  </p>
+                </div>
+              </div>
+              <div class="planning-input-area">
+                <textarea
+                  id="planning-input"
+                  class="planning-input"
+                  placeholder="Type your answer..."
+                  rows="4"
+                ></textarea>
+                <div class="planning-input-actions">
+                  <button type="button" id="planning-skip-btn" class="ghost-btn">Skip</button>
+                  <button type="button" id="planning-send-btn" class="primary-btn">Save answer</button>
+                </div>
+              </div>
+              <div id="planning-create-section" class="planning-create-section">
+                <div>
+                  <h3>Generate structured brief</h3>
+                  <p class="muted small-text">
+                    Once the required questions are filled in you can assemble the XML planning brief.
+                  </p>
+                </div>
+                <button type="button" id="planning-create-btn" class="secondary-btn">Generate prompt</button>
+              </div>
+            </div>
+            <aside class="planning-sidebar">
+              <div class="planning-summary-panel">
+                <h3>Planning Summary</h3>
+                <div id="planning-summary-content" class="planning-summary-content">
+                  <div class="planning-summary-section">
+                    <h4>What's Planned</h4>
+                    <ul id="planning-planned-list" class="planning-summary-list">
+                      <li class="planning-summary-empty">No planning details yet</li>
+                    </ul>
+                  </div>
+                  <div class="planning-summary-section">
+                    <h4>Prompt Will Include</h4>
+                    <ul id="planning-prompt-sections" class="planning-summary-list">
+                      <li class="planning-summary-empty">Complete planning to see prompt structure</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+              <div id="planning-summary" class="planning-summary" hidden>
+                <div class="planning-summary-header">
+                  <h3>Structured prompt</h3>
+                  <p class="muted small-text">Review, copy, or send directly into execution.</p>
+                </div>
+                <pre id="prompt-preview" class="prompt-preview" aria-live="polite"></pre>
+                <div class="planning-summary-actions">
+                  <button type="button" id="copy-prompt-btn" class="ghost-btn">Copy XML</button>
+                  <button type="button" id="send-to-chat-btn" class="ghost-btn">Send to Chat</button>
+                  <button type="button" id="planning-done-btn" class="primary-btn">Done → Execution</button>
+                </div>
+              </div>
+              <div class="planning-secondary">
+                <button type="button" id="start-new-planning-btn" class="ghost-btn">Restart planning</button>
+                <p class="muted small-text">
+                  Restarting clears these answers but keeps previous ones in the workflow history.
+                </p>
+              </div>
+            </aside>
+          </div>
+        </section>
+      </div>
+    </template>
+
+    <script src="/app-planning.js?bust=1763357008"></script>
+    <script src="/app.js?bust=1763357008" type="module"></script>
+    <script>
+      // DISABLE SERVICE WORKER COMPLETELY
+      console.log('[CACHE] Service worker DISABLED - using fresh files');
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then((registrations) => {
+          registrations.forEach((registration) => {
+            registration.unregister();
+            console.log('[SW] UNREGISTERED:', registration);
+          });
+        });
+
+        if ('caches' in window) {
+          caches.keys().then((cacheNames) => {
+            cacheNames.forEach((cacheName) => {
+              caches.delete(cacheName);
+              console.log('[SW] DELETED CACHE:', cacheName);
+            });
+          });
+        }
+      }
+
+      // DO NOT REGISTER SERVICE WORKER
+      /*
+          navigator.serviceWorker.register('/sw.js')
+            .then((registration) => {
+              console.log('[SW] Service worker registered:', registration.scope);
+
+              // Check for updates
+              registration.addEventListener('updatefound', () => {
+                const newWorker = registration.installing;
+                newWorker.addEventListener('statechange', () => {
+                  if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                    console.log('[SW] New version available, reloading...');
+                    newWorker.postMessage({ type: 'SKIP_WAITING' });
+                    window.location.reload();
+                  }
+                });
+              });
+            })
+            .catch((error) => {
+              console.warn('[SW] Service worker registration failed:', error);
+            });
+        });
+      }
+      */
+    </script>
+
   </body>
 </html>
 

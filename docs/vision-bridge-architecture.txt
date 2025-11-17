@@ -1,0 +1,72 @@
+Vision Bridge Architecture & Configuration Guide
+Date: 2025-11-17
+
+1. Purpose
+   Deliver screenshot-derived context to non-vision Ollama models by routing images through cloud vision APIs, caching textual descriptions, and injecting them into chat/system prompts.
+
+2. High-Level Flow
+   a. User attaches/captures screenshots (client limits to 4 images, optimizes to ≤1600 px edges and ~2 MB payloads).
+   b. `/api/chat` or `/api/chat/stream` receives base64 images + message payload.
+   c. Bridge determines whether current model needs summaries (based on `visionBridgeMode` + `visionNativeModels`).
+   d. For each image, bridge queries configured provider (OpenAI/Anthropic/Google) with descriptive prompt and enforces cache/rate limits.
+   e. Summaries are appended to the system prompt context; optionally, original images are still forwarded when mode = `hybrid`.
+   f. Responses (sync + SSE) return `visionDescriptions` for UI persistence and `visionBridgeError` for graceful degradation.
+
+3. Backend Components (`server.js`)
+   - Provider selection: `resolveVisionProvider()` respects `VISION_PROVIDER` env, request overrides, and auto-fallback detection.
+   - Mode control: `shouldUseVisionBridge()` inspects `VISION_BRIDGE_MODE` (`off`, `auto`, `force`, `hybrid`) and native-model allowlist.
+   - Image normalization: `normalizeVisionImagePayload()` sanitizes mime type, size, and generates SHA hashes for cache lookups.
+   - Cache & rate limiting:
+       * `visionCacheStore` persists to `storage/vision-cache.json`, bounded by `VISION_CACHE_MAX_ENTRIES` and TTL.
+       * `enforceVisionRateLimit()` tracks per-provider windows, default 60 req/min (`VISION_{PROVIDER}_MAX_REQUESTS_PER_MINUTE` override).
+   - Provider adapters:
+       * OpenAI: `describeWithOpenAI()` (chat/completions API, `OPENAI_VISION_MODEL`).
+       * Anthropic: `describeWithAnthropic()` (Messages API, `ANTHROPIC_VISION_MODEL`, `ANTHROPIC_VERSION` header).
+       * Google: `describeWithGoogle()` (Generative Language API, `GOOGLE_VISION_MODEL`).
+   - Prompt augmentation: `buildVisionContextBlock()` emits “Vision analysis” section; appended alongside attachments + structured thinking directives.
+   - Error handling: bridge failures set `visionBridgeError` but never abort Ollama generation; SSE fallback pushes error objects downstream.
+
+4. Frontend Components (`public/app.js`, `public/index.html`, `public/styles.css`)
+   - Capture/upload: `captureScreenshotFrame()` uses `getDisplayMedia`; fallback messaging disables button when unsupported.
+   - Client optimization: `optimizeImageDataUrl()` downsizes images iteratively; `MAX_CHAT_IMAGES`, `MAX_CLIENT_IMAGE_DIMENSION`, `MAX_CLIENT_IMAGE_BYTES` guard resource use.
+   - UI feedback:
+       * Composer shows per-message image counter and `vision-bridge-status` pill (`renderVisionProviderDetails`, `updateVisionBridgeStatus`).
+       * Vision summaries inserted via `.vision-context-block` in conversation history + persisted session history.
+   - Settings UI: new fields for provider/mode/description prompt/native models/cache TTL integrate with `/api/settings` (auto-fill + submission).
+
+5. Configuration Matrix (Environment Variables)
+   - Core toggles:
+       * `VISION_PROVIDER` (`off`, `auto`, `openai`, `anthropic`, `google`)
+       * `VISION_BRIDGE_MODE` (`off`, `auto`, `force`, `hybrid`)
+       * `VISION_NATIVE_MODELS` (comma list of models with native vision)
+       * `VISION_DESCRIPTION_PROMPT`, `VISION_MAX_DESCRIPTION_CHARS`
+       * `VISION_CACHE_TTL_MS`, `VISION_CACHE_MAX_ENTRIES`
+   - Provider credentials:
+       * OpenAI: `OPENAI_API_KEY`, `OPENAI_API_BASE`, `OPENAI_VISION_MODEL`
+       * Anthropic: `ANTHROPIC_API_KEY`, `ANTHROPIC_API_BASE`, `ANTHROPIC_VISION_MODEL`, `ANTHROPIC_VERSION`
+       * Google: `GOOGLE_API_KEY`, `GOOGLE_API_BASE`, `GOOGLE_VISION_MODEL`
+   - Rate limits: `VISION_OPENAI_MAX_REQUESTS_PER_MINUTE`, etc.
+
+6. Storage & Persistence
+   - `storage/vision-cache.json` (runtime): hashed entries storing provider, model, description, timestamps; not committed to VCS.
+   - Session history includes `visionDescriptions` so UI can render context without recomputing.
+
+7. Testing & Verification
+   - `npm run test:api` exercises generate/chat/chat-stream flows; preset expectation ensures default assistant remains intact.
+   - Manual: run server on alternate port and `curl /api/settings` to verify presets + current runtime config.
+   - UI: ensure browser permissions allow `getDisplayMedia`; fallback states disable screenshot button gracefully.
+
+8. Deployment Considerations
+   - Secrets: ensure provider API keys injected via environment or secure secret managers; never bake into repo.
+   - Privacy: communicate screenshot handling and third-party transfer; consider additional consent gating in UI.
+   - Observability: log provider latencies/errors (without leaking image content) for capacity planning.
+   - Scaling: monitor `visionUsageWindows`; adjust per-provider rate limits or add queueing if concurrency exceeds vendor quotas.
+
+9. Model Acquisition UX (New)
+   - Before a user can attach screenshots, a model-prep modal prompts them to either:
+       * Select an installed local model,
+       * Install a recommended local model by RAM/VRAM tier (calls `/api/models/pull`),
+       * Or switch to Ollama Cloud presets (web models) with inline instructions.
+   - Readiness is persisted via `STORAGE_KEYS.modelReady`; once acknowledged or a model is detected, image uploads unlock automatically.
+   - Gating hooks intercept both upload and screenshot buttons, ensuring every screenshot send has a backing text model ready.
+

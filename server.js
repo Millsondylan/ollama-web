@@ -102,11 +102,38 @@ const MAX_THINKING_CHARACTERS =
   process.env.MAX_THINKING_CHARACTERS !== undefined && process.env.MAX_THINKING_CHARACTERS !== ''
     ? Number(process.env.MAX_THINKING_CHARACTERS)
     : Infinity;
+const VISION_PROVIDER = (process.env.VISION_PROVIDER || 'off').toLowerCase();
+const VISION_BRIDGE_MODE = (process.env.VISION_BRIDGE_MODE || 'auto').toLowerCase();
+const VISION_DESCRIPTION_PROMPT =
+  process.env.VISION_DESCRIPTION_PROMPT ||
+  'Describe the screenshot with emphasis on UI layout, visible text, alerts, and actionable elements. Include accessibility hints and note anything unusual.';
+const VISION_MAX_DESCRIPTION_CHARS = Number(process.env.VISION_MAX_DESCRIPTION_CHARS || 1200);
+const VISION_CACHE_TTL_MS = Number(process.env.VISION_CACHE_TTL_MS || 15 * 60 * 1000);
+const VISION_CACHE_MAX_ENTRIES = Number(process.env.VISION_CACHE_MAX_ENTRIES || 200);
+const VISION_MAX_IMAGE_BYTES = Number(process.env.VISION_MAX_IMAGE_BYTES || 3 * 1024 * 1024);
+const VISION_MAX_REQUESTS_PER_MINUTE = Number(process.env.VISION_MAX_REQUESTS_PER_MINUTE || 60);
+const DEFAULT_VISION_TIMEOUT_MS = Number(process.env.VISION_TIMEOUT_MS || 45000);
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.VISION_OPENAI_KEY || '';
+const OPENAI_API_BASE = process.env.OPENAI_API_BASE || 'https://api.openai.com/v1';
+const OPENAI_VISION_MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4o-mini';
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || process.env.VISION_ANTHROPIC_KEY || '';
+const ANTHROPIC_API_BASE = process.env.ANTHROPIC_API_BASE || 'https://api.anthropic.com/v1';
+const ANTHROPIC_VISION_MODEL = process.env.ANTHROPIC_VISION_MODEL || 'claude-3-opus-20240229';
+const ANTHROPIC_VERSION = process.env.ANTHROPIC_VERSION || '2023-06-01';
+const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY || process.env.VISION_GOOGLE_KEY || '';
+const GOOGLE_API_BASE = process.env.GOOGLE_API_BASE || 'https://generativelanguage.googleapis.com/v1beta';
+const GOOGLE_VISION_MODEL = process.env.GOOGLE_VISION_MODEL || 'gemini-1.5-pro';
+const VISION_NATIVE_MODELS = (process.env.VISION_NATIVE_MODELS || 'llava,llava-phi,moondream,phi3-vision')
+  .split(',')
+  .map((entry) => entry.trim().toLowerCase())
+  .filter(Boolean);
 
 const __dirnameResolved = __dirname || path.resolve();
 const STORAGE_DIR = path.join(__dirnameResolved, 'storage');
 const SESSIONS_FILE = path.join(STORAGE_DIR, 'sessions.json');
 const API_KEYS_FILE = path.join(STORAGE_DIR, 'api-keys.json');
+const VISION_CACHE_FILE = path.join(STORAGE_DIR, 'vision-cache.json');
+const SETTINGS_FILE = path.join(STORAGE_DIR, 'settings.json');
 
 /**
  * API surface
@@ -175,7 +202,13 @@ const DEFAULT_SETTINGS = {
   maxHistory: DEFAULT_CONTEXT_LIMIT,
   backendBaseUrl: DEFAULT_BASE_URL,
   ollamaMode: OLLAMA_MODE,
-  ollamaApiKey: OLLAMA_API_KEY
+  ollamaApiKey: OLLAMA_API_KEY,
+  visionProvider: VISION_PROVIDER,
+  visionBridgeMode: VISION_BRIDGE_MODE,
+  visionDescriptionPrompt: VISION_DESCRIPTION_PROMPT,
+  visionMaxDescriptionChars: VISION_MAX_DESCRIPTION_CHARS,
+  visionNativeModels: VISION_NATIVE_MODELS,
+  visionCacheTtlMs: VISION_CACHE_TTL_MS
 };
 
 const AI_CODER_PROMPT_PRESET = `You are a prompt engineer for autonomous AI coders. Convert every user request into a COMPLETE XML prompt that the coder can execute without follow-up.
@@ -232,6 +265,38 @@ const INSTRUCTION_PRESETS = [
       strictXML: true,
       phases: ['discovery', 'research', 'execution', 'verification', 'reporting']
     },
+    suggestedModels: [
+      {
+        name: 'qwen3:3B',
+        description: 'Fast, efficient coding model',
+        size: '≈2.7 GB download',
+        tags: ['coding', 'fast']
+      },
+      {
+        name: 'deepseek-coder:7B',
+        description: 'Specialized for code generation',
+        size: '≈4.9 GB download',
+        tags: ['coding', 'specialized']
+      },
+      {
+        name: 'codellama:13B',
+        description: 'Meta coding-focused LLaMA variant',
+        size: '≈7.5 GB download',
+        tags: ['coding', 'meta']
+      },
+      {
+        name: 'mixtral:8x7B',
+        description: 'Powerful mixture-of-experts model',
+        size: '≈19 GB download',
+        tags: ['coding', 'advanced']
+      },
+      {
+        name: 'phi3:medium',
+        description: 'Microsoft efficient coding model',
+        size: '≈8.1 GB download',
+        tags: ['coding', 'efficient']
+      }
+    ],
     updatedAt: '2025-11-16T00:00:00Z'
   },
   {
@@ -283,7 +348,150 @@ const INSTRUCTION_PRESETS = [
   }
 ];
 
+/**
+ * Model-Preset Compatibility Mapping
+ * Maps instruction presets to recommended models based on preset capabilities
+ */
+const MODEL_PRESET_SUGGESTIONS = {
+  'ai-coder-prompt': [
+    {
+      name: 'claude2',
+      reason: 'Advanced reasoning for code generation',
+      capabilities: ['reasoning', 'coding', 'multimodal']
+    },
+    {
+      name: 'mistral',
+      reason: 'Fast inference for prompt engineering',
+      capabilities: ['reasoning', 'coding']
+    },
+    {
+      name: 'llama2',
+      reason: 'Balanced performance for general coding',
+      capabilities: ['coding', 'reasoning']
+    }
+  ],
+  'default': [
+    {
+      name: 'mistral',
+      reason: 'Fast and efficient general-purpose model',
+      capabilities: ['general', 'reasoning']
+    }
+  ]
+};
+
+function getSuggestedModels(presetId, availableModels = []) {
+  const suggestions = MODEL_PRESET_SUGGESTIONS[presetId] || MODEL_PRESET_SUGGESTIONS['default'];
+  const availableNames = new Set(availableModels.map(m => m.name.split(':')[0].toLowerCase()));
+
+  return suggestions
+    .filter(suggestion => !availableNames.has(suggestion.name.toLowerCase()))
+    .slice(0, 3);
+}
+
 let runtimeSettings = { ...DEFAULT_SETTINGS };
+
+// Load runtime settings from disk
+async function loadRuntimeSettings() {
+  ensureStorageDir();
+  if (!fs.existsSync(SETTINGS_FILE)) {
+    console.log('[Settings] No persisted settings found, using defaults');
+    return;
+  }
+
+  try {
+    const raw = await fsp.readFile(SETTINGS_FILE, 'utf8');
+    const persisted = JSON.parse(raw);
+    runtimeSettings = { ...DEFAULT_SETTINGS, ...sanitizeRuntimeSettings(persisted) };
+    console.log('[Settings] Loaded persisted settings from disk');
+  } catch (error) {
+    console.error('[Settings] Failed to load settings from disk:', error);
+    console.log('[Settings] Using default settings');
+  }
+}
+
+// Sanitize runtime settings to ensure valid values
+function sanitizeRuntimeSettings(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return {};
+  }
+
+  const sanitized = {};
+
+  // Model: must be string
+  if (typeof raw.model === 'string' && raw.model.trim()) {
+    sanitized.model = raw.model.trim();
+  }
+
+  // API endpoint: must be string, ensure trailing slash
+  if (typeof raw.apiEndpoint === 'string' && raw.apiEndpoint.trim()) {
+    sanitized.apiEndpoint = withTrailingSlash(raw.apiEndpoint.trim());
+  }
+
+  // Theme: must be valid theme
+  if (typeof raw.theme === 'string' && ['light', 'dark', 'system'].includes(raw.theme)) {
+    sanitized.theme = raw.theme;
+  }
+
+  // System instructions: must be string
+  if (typeof raw.systemInstructions === 'string') {
+    sanitized.systemInstructions = raw.systemInstructions;
+  }
+
+  // Max history: must be positive number
+  if (typeof raw.maxHistory === 'number' && raw.maxHistory > 0) {
+    sanitized.maxHistory = Math.floor(raw.maxHistory);
+  }
+
+  // Backend base URL: must be string
+  if (typeof raw.backendBaseUrl === 'string' && raw.backendBaseUrl.trim()) {
+    sanitized.backendBaseUrl = raw.backendBaseUrl.trim();
+  }
+
+  // Ollama mode: must be 'local' or 'cloud'
+  if (typeof raw.ollamaMode === 'string' && ['local', 'cloud'].includes(raw.ollamaMode)) {
+    sanitized.ollamaMode = raw.ollamaMode;
+  }
+
+  // Ollama API key: must be string (if provided)
+  if (typeof raw.ollamaApiKey === 'string') {
+    sanitized.ollamaApiKey = raw.ollamaApiKey;
+  }
+
+  // Vision settings
+  if (typeof raw.visionProvider === 'string') {
+    sanitized.visionProvider = sanitizeVisionProvider(raw.visionProvider);
+  }
+  if (typeof raw.visionBridgeMode === 'string') {
+    sanitized.visionBridgeMode = normalizeVisionMode(raw.visionBridgeMode);
+  }
+  if (typeof raw.visionDescriptionPrompt === 'string') {
+    sanitized.visionDescriptionPrompt = raw.visionDescriptionPrompt;
+  }
+  if (typeof raw.visionMaxDescriptionChars === 'number' && raw.visionMaxDescriptionChars > 0) {
+    sanitized.visionMaxDescriptionChars = Math.floor(raw.visionMaxDescriptionChars);
+  }
+  if (raw.visionNativeModels !== undefined) {
+    sanitized.visionNativeModels = normalizeVisionModelList(raw.visionNativeModels);
+  }
+  if (typeof raw.visionCacheTtlMs === 'number' && raw.visionCacheTtlMs >= 0) {
+    sanitized.visionCacheTtlMs = Math.floor(raw.visionCacheTtlMs);
+  }
+
+  return sanitized;
+}
+
+// Persist runtime settings to disk
+async function persistRuntimeSettings() {
+  ensureStorageDir();
+  try {
+    const toPersist = { ...runtimeSettings };
+    await fsp.writeFile(SETTINGS_FILE, JSON.stringify(toPersist, null, 2), 'utf8');
+    console.log('[Settings] Persisted settings to disk');
+  } catch (error) {
+    console.error('[Settings] Failed to persist settings to disk:', error);
+    throw error;
+  }
+}
 
 function withTrailingSlash(value) {
   if (!value) {
@@ -340,12 +548,16 @@ function createDefaultSession() {
   return {
     id: DEFAULT_SESSION_ID,
     name: 'Default Session',
-    instructions: DEFAULT_SETTINGS.systemInstructions,
+    instructions: DEFAULT_SYSTEM_INSTRUCTIONS,
     presetId: 'default-assistant',
     attachments: [],
     history: [],
     createdAt: now,
-    updatedAt: now
+    updatedAt: now,
+    mode: 'instant',
+    planningData: null,
+    planningHistory: [],
+    chatHistory: []
   };
 }
 
@@ -353,15 +565,40 @@ function normalizeSession(session, fallbackName = 'Untitled Session') {
   if (!session) {
     return createDefaultSession();
   }
+
+  // Load instructions from preset if presetId is set but instructions are empty
+  let instructions = session.instructions || '';
+  if (session.presetId && !instructions) {
+    const preset = INSTRUCTION_PRESETS.find(p => p.id === session.presetId);
+    if (preset) {
+      instructions = preset.instructions;
+    }
+  }
+
   return {
     id: session.id || crypto.randomUUID(),
     name: session.name || fallbackName,
-    instructions: session.instructions || '',
-    presetId: session.presetId || null,
+    instructions,
+    presetId: session.presetId || 'default-assistant',
     attachments: Array.isArray(session.attachments) ? session.attachments : [],
     history: Array.isArray(session.history) ? session.history : [],
     createdAt: session.createdAt || new Date().toISOString(),
-    updatedAt: session.updatedAt || new Date().toISOString()
+    updatedAt: session.updatedAt || new Date().toISOString(),
+
+    // Dual-mode support fields
+    mode: session.mode || 'instant', // 'instant' | 'planning'
+    planningData: session.planningData ? {
+      status: session.planningData.status || 'draft', // 'draft' | 'complete' | 'transferred'
+      answers: session.planningData.answers || { objective: '', context: '', constraints: '', verification: '' },
+      generatedPrompt: session.planningData.generatedPrompt || '',
+      conversation: Array.isArray(session.planningData.conversation) ? session.planningData.conversation : [],
+      images: Array.isArray(session.planningData.images) ? session.planningData.images : [],
+      attachments: Array.isArray(session.planningData.attachments) ? session.planningData.attachments : [],
+      visionModel: session.planningData.visionModel || null,
+      updatedAt: session.planningData.updatedAt || new Date().toISOString()
+    } : null,
+    planningHistory: Array.isArray(session.planningHistory) ? session.planningHistory : [],
+    chatHistory: Array.isArray(session.chatHistory) ? session.chatHistory : []
   };
 }
 
@@ -623,6 +860,17 @@ function ensureSession(sessionId = DEFAULT_SESSION_ID) {
       sessionStore.sessions[targetId].name
     );
   }
+
+  // Apply preset instructions if missing
+  const session = sessionStore.sessions[targetId];
+  if (session.presetId && !session.instructions) {
+    const preset = INSTRUCTION_PRESETS.find(p => p.id === session.presetId);
+    if (preset) {
+      session.instructions = preset.instructions;
+      console.log(`[Session] Applied preset instructions for ${session.presetId}`);
+    }
+  }
+
   return sessionStore.sessions[targetId];
 }
 
@@ -945,10 +1193,519 @@ const ensureFetch = () => {
 
 const httpFetch = ensureFetch();
 
+function sanitizeMimeType(value = '') {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized.startsWith('image/')) {
+    return normalized;
+  }
+  if (normalized.includes('jpeg') || normalized.includes('jpg')) {
+    return 'image/jpeg';
+  }
+  if (normalized.includes('webp')) {
+    return 'image/webp';
+  }
+  if (normalized.includes('gif')) {
+    return 'image/gif';
+  }
+  return 'image/png';
+}
+
+function computeVisionHash(input = '') {
+  return crypto.createHash('sha256').update(String(input)).digest('hex');
+}
+
+function normalizeBase64Payload(raw = '') {
+  if (!raw) {
+    return '';
+  }
+  const trimmed = String(raw).trim();
+  const commaIdx = trimmed.indexOf(',');
+  if (trimmed.startsWith('data:') && commaIdx !== -1) {
+    return trimmed.slice(commaIdx + 1).replace(/\s+/g, '');
+  }
+  return trimmed.replace(/\s+/g, '');
+}
+
+function loadVisionCacheStore() {
+  ensureStorageDir();
+  if (!fs.existsSync(VISION_CACHE_FILE)) {
+    return new Map();
+  }
+  try {
+    const raw = fs.readFileSync(VISION_CACHE_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed.entries)) {
+      return new Map();
+    }
+    return new Map(
+      parsed.entries
+        .filter((entry) => entry && entry.hash && entry.description)
+        .map((entry) => [entry.hash, entry])
+    );
+  } catch (error) {
+    console.warn('[vision-cache] Failed to load cache:', error.message);
+    return new Map();
+  }
+}
+
+function persistVisionCacheStore() {
+  try {
+    const payload = {
+      entries: Array.from(visionCacheStore.values())
+    };
+    fs.writeFileSync(VISION_CACHE_FILE, JSON.stringify(payload, null, 2), 'utf8');
+  } catch (error) {
+    console.warn('[vision-cache] Failed to persist cache:', error.message);
+  }
+}
+
+function getVisionCacheEntry(hash) {
+  if (!hash || !visionCacheStore.has(hash)) {
+    return null;
+  }
+  const entry = visionCacheStore.get(hash);
+  if (!entry || !entry.createdAt) {
+    visionCacheStore.delete(hash);
+    return null;
+  }
+  const expiresAt = new Date(entry.createdAt).getTime() + VISION_CACHE_TTL_MS;
+  if (Date.now() > expiresAt) {
+    visionCacheStore.delete(hash);
+    return null;
+  }
+  return entry;
+}
+
+function pruneVisionCacheStore() {
+  if (visionCacheStore.size <= VISION_CACHE_MAX_ENTRIES) {
+    return;
+  }
+  const ordered = Array.from(visionCacheStore.entries()).sort(
+    (a, b) => new Date(a[1].createdAt).getTime() - new Date(b[1].createdAt).getTime()
+  );
+  while (ordered.length > VISION_CACHE_MAX_ENTRIES) {
+    const [hashToDrop] = ordered.shift();
+    if (hashToDrop) {
+      visionCacheStore.delete(hashToDrop);
+    }
+  }
+}
+
+function setVisionCacheEntry(hash, entry) {
+  if (!hash || !entry) {
+    return;
+  }
+  visionCacheStore.set(hash, entry);
+  pruneVisionCacheStore();
+  persistVisionCacheStore();
+}
+
+function normalizeVisionImagePayload(image, index = 0) {
+  if (!image) {
+    return null;
+  }
+  const base64 = normalizeBase64Payload(
+    typeof image === 'string' ? image : image.data || image.base64 || image.content || ''
+  );
+  if (!base64) {
+    return null;
+  }
+  const mimeType = sanitizeMimeType(image.type || image.mimeType || (typeof image === 'string' ? '' : ''));
+  const sizeBytes = Buffer.from(base64, 'base64').length;
+  return {
+    base64,
+    mimeType,
+    sizeBytes,
+    name: (image.name || `Screenshot ${index + 1}`).toString().slice(0, 80),
+    hashBase: computeVisionHash(`${mimeType}:${base64}`)
+  };
+}
+
+function sanitizeVisionProvider(value) {
+  if (!value) return undefined;
+  const normalized = String(value).toLowerCase();
+  const allowed = ['auto', 'off', 'openai', 'anthropic', 'google'];
+  return allowed.includes(normalized) ? normalized : undefined;
+}
+
+function normalizeVisionMode(value) {
+  if (!value) return undefined;
+  const normalized = String(value).toLowerCase();
+  const allowed = ['off', 'auto', 'force', 'hybrid'];
+  return allowed.includes(normalized) ? normalized : undefined;
+}
+
+function resolveVisionProvider(preferred) {
+  const requested = sanitizeVisionProvider(preferred || runtimeSettings.visionProvider || VISION_PROVIDER || 'off');
+  if (!requested || requested === 'off') {
+    return requested || 'off';
+  }
+  if (requested !== 'auto' && isVisionProviderConfigured(requested)) {
+    return requested;
+  }
+  const fallbacks = ['openai', 'anthropic', 'google'];
+  for (const candidate of fallbacks) {
+    if (isVisionProviderConfigured(candidate)) {
+      return candidate;
+    }
+  }
+  return 'off';
+}
+
+function isVisionProviderConfigured(providerId) {
+  switch ((providerId || '').toLowerCase()) {
+    case 'openai':
+      return Boolean(OPENAI_API_KEY);
+    case 'anthropic':
+      return Boolean(ANTHROPIC_API_KEY);
+    case 'google':
+      return Boolean(GOOGLE_API_KEY);
+    default:
+      return false;
+  }
+}
+
+function normalizeVisionModelList(value) {
+  if (!value && value !== '') {
+    return VISION_NATIVE_MODELS;
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => entry && entry.toString().toLowerCase().trim()).filter(Boolean);
+  }
+  return String(value)
+    .split(',')
+    .map((entry) => entry.toLowerCase().trim())
+    .filter(Boolean);
+}
+/**
+ * Auto-select the best vision model based on available models and images
+ * @param {Array} images - Array of images to process
+ * @param {Array} availableModels - List of available Ollama models
+ * @returns {Object} - { model, needsPull, usesBridge, recommendations }
+ */
+async function autoSelectVisionModel(images = [], availableModels = []) {
+  // If no images, no vision model needed
+  if (!Array.isArray(images) || images.length === 0) {
+    return { model: null, needsPull: false, usesBridge: false, recommendations: [] };
+  }
+
+  // Get list of vision-capable models
+  const visionNativeModels = normalizeVisionModelList(runtimeSettings.visionNativeModels || VISION_NATIVE_MODELS);
+
+  // Check if any local vision models are available
+  const localVisionModels = availableModels.filter(m => {
+    const modelName = (m.name || '').toLowerCase();
+    return visionNativeModels.some(v => modelName.includes(v));
+  });
+
+  // If local vision models exist, use the first one
+  if (localVisionModels.length > 0) {
+    return {
+      model: localVisionModels[0].name,
+      needsPull: false,
+      usesBridge: false,
+      recommendations: localVisionModels.map(m => m.name)
+    };
+  }
+
+  // No local vision models - check if vision bridge is configured
+  const visionProvider = resolveVisionProvider();
+  if (visionProvider !== 'off') {
+    return {
+      model: null,
+      needsPull: false,
+      usesBridge: true,
+      provider: visionProvider,
+      recommendations: [`Using ${visionProvider} vision bridge`]
+    };
+  }
+
+  // No local models and no bridge - suggest pulling a model
+  const recommendedModels = ['llava:latest', 'llava-phi:latest', 'moondream:latest'];
+
+  return {
+    model: null,
+    needsPull: true,
+    usesBridge: false,
+    recommendations: recommendedModels,
+    suggestedModel: recommendedModels[0] // llava is the most capable
+  };
+}
+
+function shouldUseVisionBridge(modelName = '') {
+  const mode = (runtimeSettings.visionBridgeMode || VISION_BRIDGE_MODE).toLowerCase();
+  if (mode === 'off') {
+    return false;
+  }
+  if (mode === 'force' || mode === 'hybrid') {
+    return true;
+  }
+  const normalizedModel = (modelName || '').toLowerCase();
+  const configured = normalizeVisionModelList(runtimeSettings.visionNativeModels);
+  return !configured.includes(normalizedModel);
+}
+
+const visionUsageWindows = new Map();
+
+function enforceVisionRateLimit(providerId) {
+  if (!providerId) {
+    return;
+  }
+  const limitEnvKey = `VISION_${providerId.toUpperCase()}_MAX_REQUESTS_PER_MINUTE`;
+  const providerLimit = Number(process.env[limitEnvKey] || VISION_MAX_REQUESTS_PER_MINUTE || 60);
+  const windowState = visionUsageWindows.get(providerId) || { start: Date.now(), count: 0 };
+  if (Date.now() - windowState.start >= 60000) {
+    windowState.start = Date.now();
+    windowState.count = 0;
+  }
+  if (windowState.count >= providerLimit) {
+    throw new Error(`Vision provider ${providerId} is temporarily rate limited. Please retry shortly.`);
+  }
+  windowState.count += 1;
+  visionUsageWindows.set(providerId, windowState);
+}
+
+function formatVisionDescriptions(descriptions = []) {
+  if (!Array.isArray(descriptions) || !descriptions.length) {
+    return '';
+  }
+  return descriptions
+    .map((entry, index) => {
+      return `Screenshot ${index + 1} (${entry.name || 'Image'}):\n${entry.description}`;
+    })
+    .join('\n\n');
+}
+
+function buildVisionContextBlock(descriptions = []) {
+  const formatted = formatVisionDescriptions(descriptions);
+  if (!formatted) {
+    return '';
+  }
+  return `Vision analysis:\n${formatted}`;
+}
+
+async function describeScreenshotsViaBridge(images, options = {}) {
+  if (!Array.isArray(images) || !images.length) {
+    return [];
+  }
+  const providerId = resolveVisionProvider(options.provider);
+  if (providerId === 'off') {
+    throw new Error('Vision provider disabled. Set VISION_PROVIDER and API keys to enable screenshot descriptions.');
+  }
+  const normalized = images
+    .map((image, index) => normalizeVisionImagePayload(image, index))
+    .filter(Boolean)
+    .slice(0, MAX_GENERATE_IMAGES);
+  if (!normalized.length) {
+    return [];
+  }
+  const prompt = options.prompt || runtimeSettings.visionDescriptionPrompt || VISION_DESCRIPTION_PROMPT;
+  const maxChars = Number(options.maxDescriptionChars || runtimeSettings.visionMaxDescriptionChars || VISION_MAX_DESCRIPTION_CHARS);
+  const timeout = Number(options.timeout || DEFAULT_VISION_TIMEOUT_MS);
+  const results = [];
+  for (const payload of normalized) {
+    if (payload.sizeBytes > VISION_MAX_IMAGE_BYTES) {
+      console.warn(
+        `[vision] Skipping ${payload.name} (${payload.sizeBytes} bytes) because it exceeds limit of ${VISION_MAX_IMAGE_BYTES} bytes`
+      );
+      continue;
+    }
+    const cacheHash = computeVisionHash(`${payload.hashBase}:${providerId}:${prompt}:${maxChars}`);
+    const cached = getVisionCacheEntry(cacheHash);
+    if (cached) {
+      results.push({ ...cached, cached: true });
+      continue;
+    }
+    enforceVisionRateLimit(providerId);
+    const description = await callVisionProvider(providerId, payload, {
+      prompt,
+      maxChars,
+      timeout,
+      requestId: options.requestId
+    });
+    const trimmed = (description.text || '').trim().slice(0, maxChars);
+    const entry = {
+      id: crypto.randomUUID(),
+      hash: cacheHash,
+      provider: providerId,
+      model: description.model,
+      name: payload.name,
+      description: trimmed,
+      createdAt: new Date().toISOString()
+    };
+    setVisionCacheEntry(cacheHash, entry);
+    results.push(entry);
+  }
+  return results;
+}
+
+async function callVisionProvider(providerId, payload, options) {
+  switch (providerId) {
+    case 'openai':
+      return describeWithOpenAI(payload, options);
+    case 'anthropic':
+      return describeWithAnthropic(payload, options);
+    case 'google':
+      return describeWithGoogle(payload, options);
+    default:
+      throw new Error(`Unsupported vision provider: ${providerId}`);
+  }
+}
+
+async function describeWithOpenAI(payload, options) {
+  if (!OPENAI_API_KEY) {
+    throw new Error('OpenAI API key missing. Set OPENAI_API_KEY.');
+  }
+  const body = {
+    model: options?.model || OPENAI_VISION_MODEL,
+    temperature: 0.2,
+    max_completion_tokens: Math.min(1024, Math.ceil((options.maxChars || 1200) / 3)),
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: options.prompt || VISION_DESCRIPTION_PROMPT },
+          {
+            type: 'image_url',
+            image_url: {
+              url: `data:${payload.mimeType};base64,${payload.base64}`
+            }
+          }
+        ]
+      }
+    ]
+  };
+  const response = await httpFetch(`${OPENAI_API_BASE}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    timeout: options.timeout || DEFAULT_VISION_TIMEOUT_MS,
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    const reason = await response.text();
+    throw new Error(`OpenAI vision request failed (${response.status}): ${reason || 'Unknown error'}`);
+  }
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content;
+  let text = '';
+  if (Array.isArray(content)) {
+    text = content
+      .map((part) => part.text || '')
+      .filter(Boolean)
+      .join('\n')
+      .trim();
+  } else if (typeof content === 'string') {
+    text = content.trim();
+  }
+  return { text, model: body.model };
+}
+
+async function describeWithAnthropic(payload, options) {
+  if (!ANTHROPIC_API_KEY) {
+    throw new Error('Anthropic API key missing. Set ANTHROPIC_API_KEY.');
+  }
+  const model = options?.model || ANTHROPIC_VISION_MODEL;
+  const body = {
+    model,
+    max_tokens: Math.min(1024, Math.ceil((options.maxChars || 1200) / 3)),
+    system: 'You are a vision assistant that summarizes screenshots precisely and concisely.',
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: options.prompt || VISION_DESCRIPTION_PROMPT },
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: payload.mimeType,
+              data: payload.base64
+            }
+          }
+        ]
+      }
+    ]
+  };
+  const response = await httpFetch(`${ANTHROPIC_API_BASE}/messages`, {
+    method: 'POST',
+    headers: {
+      'x-api-key': ANTHROPIC_API_KEY,
+      'anthropic-version': ANTHROPIC_VERSION,
+      'Content-Type': 'application/json'
+    },
+    timeout: options.timeout || DEFAULT_VISION_TIMEOUT_MS,
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    const reason = await response.text();
+    throw new Error(`Anthropic vision request failed (${response.status}): ${reason || 'Unknown error'}`);
+  }
+  const data = await response.json();
+  const text = (data.content || [])
+    .map((part) => (typeof part.text === 'string' ? part.text : ''))
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+  return { text, model };
+}
+
+async function describeWithGoogle(payload, options) {
+  if (!GOOGLE_API_KEY) {
+    throw new Error('Google Generative Language API key missing. Set GOOGLE_API_KEY.');
+  }
+  const model = options?.model || GOOGLE_VISION_MODEL;
+  const url = `${GOOGLE_API_BASE}/models/${encodeURIComponent(model)}:generateContent?key=${GOOGLE_API_KEY}`;
+  const body = {
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          { text: options.prompt || VISION_DESCRIPTION_PROMPT },
+          {
+            inline_data: {
+              mime_type: payload.mimeType,
+              data: payload.base64
+            }
+          }
+        ]
+      }
+    ],
+    generationConfig: {
+      temperature: 0.2,
+      maxOutputTokens: Math.min(1024, Math.ceil((options.maxChars || 1200) / 3))
+    }
+  };
+  const response = await httpFetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    timeout: options.timeout || DEFAULT_VISION_TIMEOUT_MS,
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    const reason = await response.text();
+    throw new Error(`Google vision request failed (${response.status}): ${reason || 'Unknown error'}`);
+  }
+  const data = await response.json();
+  const parts = data.candidates?.[0]?.content?.parts || [];
+  const text = parts
+    .map((part) => part.text || '')
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+  return { text, model };
+}
+
+let visionCacheStore = loadVisionCacheStore();
+
 app.use(cors());
 app.use(
   express.json({
-    limit: '5mb'
+    limit: '20mb'
   })
 );
 
@@ -1279,8 +2036,7 @@ app.post('/api/chat', async (req, res) => {
 
   const modelToUse = model || runtimeSettings.model;
   const endpointToUse = apiEndpoint || runtimeSettings.apiEndpoint;
-  const systemPrompt =
-    instructions || session.instructions || runtimeSettings.systemInstructions;
+  const systemPrompt = instructions || session.instructions || runtimeSettings.systemInstructions;
   const ephemeralAttachments = Array.isArray(req.body?.attachments)
     ? sanitizeAttachments(req.body.attachments)
     : [];
@@ -1289,7 +2045,6 @@ app.post('/api/chat', async (req, res) => {
     .join('\n\n');
   const thinkingMode = (req.body?.thinkingMode || 'default').toLowerCase();
   const augmentedSystemPrompt = addThinkingPreference(systemPrompt, thinkingMode);
-  const combinedInstructions = [augmentedSystemPrompt, attachmentContext].filter(Boolean).join('\n\n');
 
   const contextLimit =
     includeHistory === false
@@ -1300,10 +2055,40 @@ app.post('/api/chat', async (req, res) => {
       ? []
       : session.history.slice(-1 * contextLimit);
 
-  const prompt = buildPrompt(messageForAI, combinedInstructions, contextSlice);
-  const images = Array.isArray(req.body?.images) && req.body.images.length
-    ? req.body.images.map(img => img.data || img).slice(0, MAX_GENERATE_IMAGES)
+  const incomingImages = Array.isArray(req.body?.images) && req.body.images.length
+    ? req.body.images.slice(0, MAX_GENERATE_IMAGES)
+    : [];
+  const normalizedOllamaImages = incomingImages.length
+    ? incomingImages
+        .map((img) => (typeof img === 'string' ? img : img.data || img.base64 || img.content || ''))
+        .filter(Boolean)
     : undefined;
+  let visionDescriptions = [];
+  let visionBridgeError = null;
+  const visionBridgeEnabled = shouldUseVisionBridge(modelToUse);
+
+  if (visionBridgeEnabled && incomingImages.length) {
+    try {
+      visionDescriptions = await describeScreenshotsViaBridge(incomingImages, {
+        prompt: req.body?.visionDescriptionPrompt || runtimeSettings.visionDescriptionPrompt,
+        maxDescriptionChars: runtimeSettings.visionMaxDescriptionChars,
+        provider: req.body?.visionProvider,
+        requestId: session.id
+      });
+    } catch (error) {
+      visionBridgeError = error.message || 'Vision bridge failed';
+      console.warn('[vision] Failed to describe screenshots:', error.message);
+    }
+  }
+
+  const visionContextBlock = buildVisionContextBlock(visionDescriptions);
+  const combinedInstructions = [augmentedSystemPrompt, attachmentContext, visionContextBlock].filter(Boolean).join('\n\n');
+  const prompt = buildPrompt(messageForAI, combinedInstructions, contextSlice);
+  const shouldForwardImages =
+    Array.isArray(normalizedOllamaImages) &&
+    normalizedOllamaImages.length &&
+    (!visionBridgeEnabled || runtimeSettings.visionBridgeMode === 'hybrid');
+  const imagesForOllama = shouldForwardImages ? normalizedOllamaImages : undefined;
   const thinkingText = '';
   const startedAt = Date.now();
   let latestSplit = { thinking: thinkingText || '', response: '', hasMarker: Boolean((thinkingText || '').length) };
@@ -1321,7 +2106,7 @@ app.post('/api/chat', async (req, res) => {
         model: modelToUse,
         prompt,
         stream: false,
-        images: images
+        images: imagesForOllama
       })
     });
 
@@ -1361,7 +2146,8 @@ app.post('/api/chat', async (req, res) => {
       sessionId: session.id,
       presetId: session.presetId || null,
       instructions: systemPrompt ? systemPrompt.slice(0, 200) : null,
-      thinking: derivedThinking
+      thinking: derivedThinking,
+      visionDescriptions: visionDescriptions.length ? visionDescriptions : undefined
     };
 
     await pushHistory(session.id, entry);
@@ -1375,7 +2161,9 @@ app.post('/api/chat', async (req, res) => {
       response: cleanedResponse,
       history: ensureSession(session.id).history,
       durationMs: Date.now() - startedAt,
-      sessionId: session.id
+      sessionId: session.id,
+      visionDescriptions,
+      visionBridgeError
     });
   } catch (error) {
     console.error('Chat API error:', error.message);
@@ -1386,7 +2174,8 @@ app.post('/api/chat', async (req, res) => {
       thinking: latestSplit?.thinking || thinkingText || '',
       error: errorMessage,
       history: ensureSession(session.id).history,
-      sessionId: session.id
+      sessionId: session.id,
+      visionBridgeError: visionBridgeError || errorMessage
     });
   }
 });
@@ -1584,12 +2373,41 @@ app.post('/api/chat/stream', async (req, res) => {
       ? []
       : session.history.slice(-1 * contextLimit);
 
-  const augmentedSystemPrompt = addThinkingPreference(systemPrompt, thinkingMode);
-  const combinedInstructions = [augmentedSystemPrompt, attachmentContext].filter(Boolean).join('\n\n');
-  const prompt = buildPrompt(messageForAI, combinedInstructions, contextSlice);
-  const images = Array.isArray(req.body?.images) && req.body.images.length
-    ? req.body.images.map(img => img.data || img).slice(0, MAX_GENERATE_IMAGES)
+  const incomingImages = Array.isArray(req.body?.images) && req.body.images.length
+    ? req.body.images.slice(0, MAX_GENERATE_IMAGES)
+    : [];
+  const normalizedOllamaImages = incomingImages.length
+    ? incomingImages
+        .map((img) => (typeof img === 'string' ? img : img.data || img.base64 || img.content || ''))
+        .filter(Boolean)
     : undefined;
+  let visionDescriptions = [];
+  let visionBridgeError = null;
+  const visionBridgeEnabled = shouldUseVisionBridge(modelToUse);
+
+  if (visionBridgeEnabled && incomingImages.length) {
+    try {
+      visionDescriptions = await describeScreenshotsViaBridge(incomingImages, {
+        prompt: req.body?.visionDescriptionPrompt || runtimeSettings.visionDescriptionPrompt,
+        maxDescriptionChars: runtimeSettings.visionMaxDescriptionChars,
+        provider: req.body?.visionProvider,
+        requestId: session.id
+      });
+    } catch (error) {
+      visionBridgeError = error.message || 'Vision bridge failed';
+      console.warn('[vision] Failed to describe screenshots (stream):', error.message);
+    }
+  }
+
+  const visionContextBlock = buildVisionContextBlock(visionDescriptions);
+  const augmentedSystemPrompt = addThinkingPreference(systemPrompt, thinkingMode);
+  const combinedInstructions = [augmentedSystemPrompt, attachmentContext, visionContextBlock].filter(Boolean).join('\n\n');
+  const prompt = buildPrompt(messageForAI, combinedInstructions, contextSlice);
+  const shouldForwardImages =
+    Array.isArray(normalizedOllamaImages) &&
+    normalizedOllamaImages.length &&
+    (!visionBridgeEnabled || runtimeSettings.visionBridgeMode === 'hybrid');
+  const images = shouldForwardImages ? normalizedOllamaImages : undefined;
   const thinkingText = '';
   const startedAt = Date.now();
 
@@ -1710,7 +2528,8 @@ app.post('/api/chat/stream', async (req, res) => {
       sessionId: session.id,
       presetId: session.presetId || null,
       instructions: combinedInstructions ? combinedInstructions.slice(0, 200) : null,
-      thinking: derivedThinking
+      thinking: derivedThinking,
+      visionDescriptions: visionDescriptions.length ? visionDescriptions : undefined
     };
 
     await pushHistory(session.id, entry);
@@ -1721,7 +2540,9 @@ app.post('/api/chat/stream', async (req, res) => {
         response: cleanedResponse,
         history: ensureSession(session.id).history,
         durationMs: Date.now() - startedAt,
-        thinking: derivedThinking
+        thinking: derivedThinking,
+        visionDescriptions,
+        visionBridgeError
       })}\n\n`
     );
     res.end();
@@ -1733,7 +2554,13 @@ app.post('/api/chat/stream', async (req, res) => {
     const errorMessage = error.message.includes('ECONNREFUSED') || error.message.includes('connect ETIMEDOUT')
       ? OLLAMA_UNAVAILABLE_MESSAGE
       : error.message || 'Failed to stream response';
-    res.write(`data: ${JSON.stringify({ error: errorMessage, thinking: latestSplit?.thinking || thinkingText || '' })}\n\n`);
+    res.write(
+      `data: ${JSON.stringify({
+        error: errorMessage,
+        thinking: latestSplit?.thinking || thinkingText || '',
+        visionBridgeError: visionBridgeError || errorMessage
+      })}\n\n`
+    );
     res.end();
   } finally {
     stopHeartbeat?.();
@@ -1833,6 +2660,82 @@ app.delete('/api/sessions/:id', async (req, res) => {
   }
 });
 
+// Save planning draft
+app.post('/api/sessions/:id/planning/save', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { planningData } = req.body;
+
+    if (!planningData) {
+      return res.status(400).json({ error: 'Planning data required' });
+    }
+
+    const session = ensureSession(id);
+
+    // Update planning data with timestamp
+    session.planningData = {
+      ...planningData,
+      updatedAt: new Date().toISOString()
+    };
+
+    // Also update session timestamp
+    session.updatedAt = new Date().toISOString();
+
+    await persistSessions();
+
+    return res.json({
+      success: true,
+      session: normalizeSession(session)
+    });
+
+  } catch (error) {
+    console.error('[PlanningS ave] Error:', error);
+    return res.status(500).json({
+      error: 'Failed to save planning draft',
+      details: error.message
+    });
+  }
+});
+
+// Switch session mode
+app.post('/api/sessions/:id/mode/switch', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { targetMode, saveDraft } = req.body;
+
+    if (!targetMode || !['instant', 'planning'].includes(targetMode)) {
+      return res.status(400).json({ error: 'Invalid target mode' });
+    }
+
+    const session = ensureSession(id);
+
+    // If saving draft before switching from planning
+    if (saveDraft && session.mode === 'planning' && session.planningData) {
+      session.planningData.updatedAt = new Date().toISOString();
+    }
+
+    // Switch mode
+    session.mode = targetMode;
+    session.updatedAt = new Date().toISOString();
+
+    await persistSessions();
+
+    return res.json({
+      success: true,
+      session: normalizeSession(session),
+      previousMode: session.mode === 'planning' ? 'instant' : 'planning',
+      currentMode: targetMode
+    });
+
+  } catch (error) {
+    console.error('[ModeSwitch] Error:', error);
+    return res.status(500).json({
+      error: 'Failed to switch mode',
+      details: error.message
+    });
+  }
+});
+
 app.get('/api/settings', (req, res) => {
   return res.json({
     defaults: DEFAULT_SETTINGS,
@@ -1841,39 +2744,94 @@ app.get('/api/settings', (req, res) => {
   });
 });
 
-app.post('/api/settings', (req, res) => {
-  const { model, apiEndpoint, theme, systemInstructions, maxHistory, backendBaseUrl, ollamaMode, ollamaApiKey } =
-    req.body || {};
+app.post('/api/settings', async (req, res) => {
+  const {
+    model,
+    apiEndpoint,
+    theme,
+    systemInstructions,
+    maxHistory,
+    backendBaseUrl,
+    ollamaMode,
+    ollamaApiKey,
+    visionProvider,
+    visionBridgeMode,
+    visionDescriptionPrompt,
+    visionMaxDescriptionChars,
+    visionNativeModels,
+    visionCacheTtlMs
+  } = req.body || {};
 
   const sanitizedBaseUrl = normalizeBaseUrlInput(backendBaseUrl);
 
-  const updates = {
+  // Build raw updates object
+  const rawUpdates = {
     ...(model ? { model } : {}),
     ...(apiEndpoint ? { apiEndpoint } : {}),
     ...(theme ? { theme } : {}),
     ...(systemInstructions ? { systemInstructions } : {}),
     ...(ollamaMode ? { ollamaMode } : {}),
-    ...(ollamaApiKey !== undefined ? { ollamaApiKey } : {})
+    ...(ollamaApiKey !== undefined ? { ollamaApiKey } : {}),
+    ...(sanitizeVisionProvider(visionProvider) ? { visionProvider: sanitizeVisionProvider(visionProvider) } : {}),
+    ...(normalizeVisionMode(visionBridgeMode) ? { visionBridgeMode: normalizeVisionMode(visionBridgeMode) } : {}),
+    ...(visionDescriptionPrompt ? { visionDescriptionPrompt: visionDescriptionPrompt.toString() } : {}),
+    ...(visionNativeModels !== undefined ? { visionNativeModels: normalizeVisionModelList(visionNativeModels) } : {})
   };
-
-  if (sanitizedBaseUrl) {
-    updates.backendBaseUrl = sanitizedBaseUrl;
+  if (visionDescriptionPrompt !== undefined && !visionDescriptionPrompt) {
+    rawUpdates.visionDescriptionPrompt = '';
   }
 
-  runtimeSettings = {
-    ...runtimeSettings,
-    ...updates
-  };
+  const parsedVisionChars = Number(visionMaxDescriptionChars);
+  if (!Number.isNaN(parsedVisionChars) && parsedVisionChars > 0) {
+    rawUpdates.visionMaxDescriptionChars = parsedVisionChars;
+  }
 
-  if (!runtimeSettings.backendBaseUrl) {
-    runtimeSettings.backendBaseUrl = DEFAULT_BASE_URL;
+  if (visionCacheTtlMs !== undefined) {
+    const parsedTtl = Number(visionCacheTtlMs);
+    if (!Number.isNaN(parsedTtl) && parsedTtl >= 0) {
+      rawUpdates.visionCacheTtlMs = parsedTtl;
+    }
+  }
+
+  if (sanitizedBaseUrl) {
+    rawUpdates.backendBaseUrl = sanitizedBaseUrl;
   }
 
   if (typeof maxHistory !== 'undefined' && maxHistory !== null) {
     const parsed = Number(maxHistory);
     if (!Number.isNaN(parsed) && parsed > 0) {
-      runtimeSettings.maxHistory = parsed;
+      rawUpdates.maxHistory = parsed;
     }
+  }
+
+  // Sanitize updates before merging
+  const sanitizedUpdates = sanitizeRuntimeSettings(rawUpdates);
+
+  // Merge with existing settings
+  runtimeSettings = {
+    ...runtimeSettings,
+    ...sanitizedUpdates
+  };
+
+  // Ensure required defaults
+  if (!runtimeSettings.backendBaseUrl) {
+    runtimeSettings.backendBaseUrl = DEFAULT_BASE_URL;
+  }
+
+  if (!Array.isArray(runtimeSettings.visionNativeModels) || !runtimeSettings.visionNativeModels.length) {
+    runtimeSettings.visionNativeModels = VISION_NATIVE_MODELS;
+  }
+
+  // Persist to disk
+  try {
+    await persistRuntimeSettings();
+  } catch (error) {
+    console.error('[Settings] Failed to persist settings:', error);
+    return res.status(500).json({
+      error: 'Settings updated but failed to persist. Changes may be lost on restart.',
+      details: error.message,
+      current: runtimeSettings
+    });
   }
 
   console.log(`Settings updated - Mode: ${runtimeSettings.ollamaMode || 'local'}, Endpoint: ${runtimeSettings.apiEndpoint}`);
@@ -1906,6 +2864,183 @@ app.post('/api/proxy', async (req, res) => {
   }
 });
 
+// Pull a specific model from Ollama
+app.post('/api/models/pull', async (req, res) => {
+  try {
+    const { modelName } = req.body;
+    if (!modelName) {
+      return res.status(400).json({ error: 'Model name required' });
+    }
+
+    // Apply streaming guards for long-running pull operation
+    applyStreamingGuards(req, res, 'model-pull');
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    const endpoint = withTrailingSlash(runtimeSettings.apiEndpoint);
+    const pullUrl = `${endpoint}api/pull`;
+
+    // Start heartbeat
+    const heartbeatTimer = startSseHeartbeat(res, 'model-pull');
+
+    try {
+      const response = await fetch(pullUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: modelName, stream: true })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Pull failed: ${response.statusText}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.trim()) {
+            try {
+              const data = JSON.parse(line);
+              res.write(`data: ${JSON.stringify(data)}\n\n`);
+            } catch (e) {
+              console.error('[ModelPull] Failed to parse:', line);
+            }
+          }
+        }
+      }
+
+      res.write(`data: {"status": "complete"}\n\n`);
+      res.end();
+
+      clearInterval(heartbeatTimer);
+
+      // Reload available models after pull
+      setTimeout(async () => {
+        try {
+          const modelsResponse = await fetch(`${endpoint}api/tags`);
+          if (modelsResponse.ok) {
+            console.log('[ModelPull] Models reloaded after pull');
+          }
+        } catch (e) {
+          console.error('[ModelPull] Failed to reload models:', e);
+        }
+      }, 1000);
+
+    } catch (error) {
+      console.error('[ModelPull] Error:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to pull model' });
+      }
+      clearInterval(heartbeatTimer);
+    }
+
+  } catch (error) {
+    console.error('[ModelPull] Error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+});
+
+// Vision capability check endpoint
+app.post('/api/vision/check', async (req, res) => {
+  try {
+    const { imageCount } = req.body;
+
+    // Get available models
+    const endpoint = withTrailingSlash(runtimeSettings.apiEndpoint);
+    const response = await httpFetch(`${endpoint}api/tags`, {
+      headers: getOllamaHeaders(null),
+      timeout: 10000
+    });
+
+    let availableModels = [];
+    if (response.ok) {
+      const data = await response.json();
+      availableModels = data.models || [];
+    }
+
+    // Use autoSelectVisionModel to determine best approach
+    const visionCheck = await autoSelectVisionModel(
+      imageCount > 0 ? new Array(imageCount).fill({}) : [],
+      availableModels
+    );
+
+    res.json({
+      ...visionCheck,
+      imageCount,
+      hasImages: imageCount > 0
+    });
+
+  } catch (error) {
+    console.error('[VisionCheck] Error:', error);
+    res.status(500).json({
+      error: 'Vision check failed',
+      details: error.message
+    });
+  }
+});
+
+// Vision process endpoint - processes images and returns descriptions
+app.post('/api/vision/process', async (req, res) => {
+  try {
+    const { images, visionModel, useDescription } = req.body;
+
+    if (!Array.isArray(images) || images.length === 0) {
+      return res.status(400).json({ error: 'No images provided' });
+    }
+
+    // If useDescription is true, use vision bridge to describe images
+    if (useDescription) {
+      const descriptions = await describeScreenshotsViaBridge(images, {
+        prompt: req.body.descriptionPrompt || runtimeSettings.visionDescriptionPrompt,
+        maxDescriptionChars: runtimeSettings.visionMaxDescriptionChars,
+        provider: req.body.visionProvider
+      });
+
+      return res.json({
+        success: true,
+        descriptions,
+        count: descriptions.length
+      });
+    }
+
+    // Otherwise, return images ready for Ollama native vision
+    const normalizedImages = images.map(img => {
+      if (typeof img === 'string') {
+        // Already base64
+        return img.replace(/^data:image\/[a-z]+;base64,/, '');
+      }
+      return img.base64 || img.content || img;
+    });
+
+    res.json({
+      success: true,
+      images: normalizedImages,
+      count: normalizedImages.length,
+      model: visionModel
+    });
+
+  } catch (error) {
+    console.error('[VisionProcess] Error:', error);
+    res.status(500).json({
+      error: 'Vision processing failed',
+      details: error.message
+    });
+  }
+});
+
 app.get('/api/models', async (req, res) => {
   try {
     const endpoint = withTrailingSlash(runtimeSettings.apiEndpoint);
@@ -1934,6 +3069,101 @@ app.get('/api/models', async (req, res) => {
     const errorMessage = error.message.includes('ECONNREFUSED') || error.message.includes('connect ETIMEDOUT')
       ? OLLAMA_UNAVAILABLE_MESSAGE
       : error.message || 'Unable to fetch models';
+    return res.status(500).json({ error: errorMessage });
+  }
+});
+
+app.get('/api/models/suggested', async (req, res) => {
+  try {
+    const { presetId } = req.query;
+    const endpoint = withTrailingSlash(runtimeSettings.apiEndpoint);
+    await ensureOllamaReachable(endpoint);
+
+    const response = await httpFetch(`${endpoint}api/tags`, {
+      headers: getOllamaHeaders(null),
+      timeout: 30000
+    });
+    if (!response.ok) {
+      return res.status(500).json({ error: 'Failed to fetch available models' });
+    }
+    const data = await response.json();
+    const models = (data.models || []).map((model) => ({
+      name: model.name,
+      size: model.size,
+      digest: model.digest,
+      modifiedAt: model.modified_at
+    }));
+
+    const suggestions = getSuggestedModels(presetId, models);
+    return res.json({ suggestions });
+  } catch (error) {
+    console.error('Error fetching suggested models:', error.message);
+    const errorMessage = error.message.includes('ECONNREFUSED') || error.message.includes('connect ETIMEDOUT')
+      ? OLLAMA_UNAVAILABLE_MESSAGE
+      : error.message || 'Unable to fetch suggested models';
+    return res.status(500).json({ error: errorMessage });
+  }
+});
+
+app.post('/api/models/pull', async (req, res) => {
+  try {
+    const { model } = req.body;
+    if (!model || typeof model !== 'string') {
+      return res.status(400).json({ error: 'Invalid model name' });
+    }
+
+    const endpoint = withTrailingSlash(runtimeSettings.apiEndpoint);
+    await ensureOllamaReachable(endpoint);
+
+    const pullUrl = `${endpoint}api/pull`;
+    const response = await httpFetch(pullUrl, {
+      method: 'POST',
+      headers: getOllamaHeaders('application/json'),
+      body: JSON.stringify({ name: model }),
+      timeout: 0
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Model pull failed:', errorText);
+      return res.status(response.status).json({
+        error: `Failed to pull model: ${errorText || response.statusText}`
+      });
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    const reader = response.body;
+    reader.on('data', (chunk) => {
+      const lines = chunk.toString().split('\n').filter(Boolean);
+      lines.forEach(line => {
+        try {
+          const parsed = JSON.parse(line);
+          res.write(`data: ${JSON.stringify(parsed)}\n\n`);
+        } catch (e) {
+          // Skip invalid JSON lines
+        }
+      });
+    });
+
+    reader.on('end', () => {
+      res.write(`data: ${JSON.stringify({ status: 'complete' })}\n\n`);
+      res.end();
+    });
+
+    reader.on('error', (error) => {
+      console.error('Model pull stream error:', error);
+      res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+      res.end();
+    });
+
+  } catch (error) {
+    console.error('Error pulling model:', error.message);
+    const errorMessage = error.message.includes('ECONNREFUSED') || error.message.includes('connect ETIMEDOUT')
+      ? OLLAMA_UNAVAILABLE_MESSAGE
+      : error.message || 'Failed to pull model';
     return res.status(500).json({ error: errorMessage });
   }
 });
@@ -2052,7 +3282,16 @@ app.post('/api/sync/data', async (req, res) => {
       sessionStore.activeSessionId = activeSessionId;
     }
     if (settings) {
-      runtimeSettings = { ...runtimeSettings, ...settings };
+      // Sanitize and merge settings
+      const sanitizedSettings = sanitizeRuntimeSettings(settings);
+      runtimeSettings = { ...runtimeSettings, ...sanitizedSettings };
+      // Persist settings to disk
+      try {
+        await persistRuntimeSettings();
+      } catch (error) {
+        console.error('[Sync] Failed to persist settings:', error);
+        // Continue with other persistence operations
+      }
     }
     if (req.body.apiKeyStore) {
       // Update the actual global apiKeyStore with synced data
@@ -2242,7 +3481,10 @@ app.get(/^(?!\/api).*/, (req, res) => {
   res.sendFile(path.join(__dirnameResolved, 'public', 'index.html'));
 });
 
-function startServer(port = PORT) {
+async function startServer(port = PORT) {
+  // Load persisted settings before starting server
+  await loadRuntimeSettings();
+  
   const listener = app.listen(port, () => {
     console.log(`Server running on http://localhost:${port}`);
     console.log('Server started successfully with /api/generate endpoint now available');
@@ -2251,7 +3493,10 @@ function startServer(port = PORT) {
 }
 
 if (require.main === module) {
-  startServer();
+  startServer().catch(error => {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  });
 }
 
 module.exports = { app, startServer };

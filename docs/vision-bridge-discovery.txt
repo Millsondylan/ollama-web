@@ -1,0 +1,43 @@
+Vision Bridge Discovery Findings
+Date: 2025-11-17
+
+1. Repository Sweep
+   - Backend: `server.js` now owns the entire bridge (provider selection, caching, rate limiting, NDJSON → SSE enrichment).
+   - Frontend: `public/app.js`, `public/index.html`, and `public/styles.css` implement image capture, preview UX, and rendering of bridge output.
+   - Storage/Artifacts: `storage/vision-cache.json` (runtime) plus new `docs/` directory for planning collateral.
+
+2. Frontend Observations (`public/app.js`, `public/index.html`, `public/styles.css`)
+   - Screenshot capture relies on `navigator.mediaDevices.getDisplayMedia`; gracefully disables the button when unavailable.
+   - Images are optimized client-side (max 1600px edge, ~2 MB base64 target) before being included in requests, with a hard cap of 4 images/message.
+   - Composer UI shows real-time image counters and a `vision-status-pill` that mirrors provider/mode, giving immediate feedback on bridge state.
+   - Vision summaries are rendered per-message inside `.vision-context-block`, ensuring downstream sessions persist the textual descriptions.
+
+3. Backend Observations (`server.js`)
+   - Environment surface: `VISION_PROVIDER`, `VISION_BRIDGE_MODE`, `VISION_DESCRIPTION_PROMPT`, `VISION_MAX_DESCRIPTION_CHARS`, `VISION_NATIVE_MODELS`, `VISION_CACHE_TTL_MS`, provider-specific keys/bases/models.
+   - Provider adapters implemented for OpenAI GPT-4o, Anthropic Claude 3 Vision, and Google Gemini (Generative Language APIs) with timeout + error normalization.
+   - Bridge injects summaries into the system prompt context and optionally forwards original images (hybrid mode) to Ollama for native-vision models.
+   - Responses and streamed chunks carry `visionDescriptions` + `visionBridgeError`, keeping UI + history consistent even on partial failures.
+   - Rate limiting (per provider) and on-disk SHA256 cache prevent redundant paid API calls while respecting TTL/entry ceilings.
+
+4. Dependencies & External Services
+   - Requires valid API keys per provider; auto-falls back through OpenAI → Anthropic → Google when `visionProvider=auto`.
+   - `node-fetch` handles outbound HTTPS requests; SSE remains Express-native.
+   - Runtime assumes Ollama availability for model list/pulls plus external APIs for bridge summaries.
+
+5. Security & Privacy Notes
+   - Base64 payloads are resized client-side to reduce PII scope, but screenshots still traverse backend → third-party API; recommend documenting consent + redaction expectations.
+   - Cache file stores hashed payload metadata + descriptions; no raw image bytes persisted on disk.
+   - API responses mask provider errors before surfacing them to UI; ensure logging redacts sensitive request IDs when integrating observability.
+
+6. Performance & Resilience
+   - Client resizing + cap prevents multi-megabyte payloads from overwhelming `/api/chat`.
+   - Provider rate limiter defaults to 60 req/min but is overridable via `VISION_{PROVIDER}_MAX_REQUESTS_PER_MINUTE`.
+   - SSE heartbeat + streaming guards already in place; bridge failures fall back to text-only mode without aborting core generation.
+
+7. Outstanding Questions / Follow-Ups
+   - Document clear UX copy for privacy/consent before enabling bridge by default.
+   - Evaluate whether additional providers (Azure OpenAI, local vision models) should plug into `describeScreenshotsViaBridge`.
+   - Decide retention policy & rotation for `vision-cache.json`; currently unbounded aside from max entries.
+   - Confirm infra support for browser screen-capture permissions (esp. Electron builds or kiosk deployments).
+
+

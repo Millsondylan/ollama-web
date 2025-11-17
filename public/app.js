@@ -13,7 +13,9 @@ const STORAGE_KEYS = {
   pages: 'ollama-web-custom-pages',
   thinking: 'ollama-web-thinking-enabled',
   activeSession: 'ollama-web-active-session',
-  instructionPresets: 'ollama-web-instruction-presets'
+  instructionPresets: 'ollama-web-instruction-presets',
+  modelReady: 'ollama-web-model-ready',
+  workflow: 'ollama-web-workflow-phases'
 };
 
 const THINKING_PREF_KEY = STORAGE_KEYS.thinking;
@@ -26,15 +28,35 @@ const THINKING_ABORT_KEYWORDS = [
 ];
 
 const FALLBACK_BASE_URL = window.location.origin + '/';
+const persistentErrors = {};
+
+function registerPersistentError(context, error) {
+  if (!context) return;
+  const entry = persistentErrors[context] || { count: 0 };
+  entry.count += 1;
+  entry.lastError = error?.message || String(error || '');
+  entry.timestamp = Date.now();
+  persistentErrors[context] = entry;
+  if (entry.count >= 3) {
+    console.warn(`[Error Monitor] Repeated ${context} failures`, entry.lastError);
+    showNotification(`Recovering from repeated ${context} errors.`, 'warning', 3500);
+    resetStuckState();
+    entry.count = 0;
+  }
+}
+
+function clearPersistentError(context) {
+  if (context && persistentErrors[context]) {
+    delete persistentErrors[context];
+  }
+}
 
 // Default navigation stack. Additional HTML pages can be appended at runtime via the Custom Pages form.
 const defaultPages = [
-  { id: 'chat', label: 'Chat', type: 'component', template: 'chat-page' },
-  { id: 'sessions', label: 'Sessions', type: 'component', template: 'sessions-page' },
-  { id: 'settings', label: 'Settings', type: 'component', template: 'settings-page' },
-  { id: 'history', label: 'History', type: 'component', template: 'history-page' },
-  { id: 'api', label: 'API', type: 'component', template: 'api-page' },
-  { id: 'model-info', label: 'Model Info', type: 'remote', src: '/pages/model-info.html' }
+  { id: 'home', label: 'Home', type: 'component', template: 'home-page' },
+  { id: 'chat', label: 'Chat', type: 'component', template: 'chat-page', hidden: true },
+  { id: 'planning', label: 'Planning', type: 'component', template: 'planning-page', hidden: true },
+  { id: 'settings', label: 'Settings', type: 'component', template: 'settings-page' }
 ];
 
 const QUICK_ACTIONS = [
@@ -64,10 +86,315 @@ const QUICK_ACTIONS = [
   }
 ];
 
+const MODEL_ACQUISITION_GROUPS = [
+  {
+    id: 'lightweight',
+    label: 'Laptops / ≤ 8 GB RAM',
+    description: 'Great for ultrabooks or CPUs without large GPUs.',
+    models: [
+      {
+        name: 'phi3:mini-vision',
+        download: '≈2.8 GB download',
+        ram: 'Needs ≥ 8 GB system RAM',
+        vram: '≈6 GB VRAM recommended',
+        notes: 'Fast startup, solid screenshots + tables.'
+      },
+      {
+        name: 'llava-phi3:3.8b',
+        download: '≈3.2 GB download',
+        ram: 'Needs ≥ 8 GB system RAM',
+        vram: '≈6 GB VRAM recommended',
+        notes: 'Smallest LLava variant with strong OCR.'
+      }
+    ]
+  },
+  {
+    id: 'balanced',
+    label: 'Workstations / 12–16 GB VRAM',
+    description: 'Balanced models for mid-range GPUs.',
+    models: [
+      {
+        name: 'llava:13b',
+        download: '≈7.5 GB download',
+        ram: 'Needs ≥ 16 GB system RAM',
+        vram: '≈12 GB VRAM recommended',
+        notes: 'Robust reasoning for UI screenshots.'
+      },
+      {
+        name: 'qwen2.5-vision:14b',
+        download: '≈9.6 GB download',
+        ram: 'Needs ≥ 24 GB system RAM',
+        vram: '≈16 GB VRAM recommended',
+        notes: 'Best mix of speed and accuracy.'
+      }
+    ]
+  },
+  {
+    id: 'enthusiast',
+    label: 'Heavy GPUs / 24+ GB VRAM',
+    description: 'Highest fidelity local models.',
+    models: [
+      {
+        name: 'llava:34b',
+        download: '≈19 GB download',
+        ram: 'Needs ≥ 32 GB system RAM',
+        vram: '≥ 24 GB VRAM',
+        notes: 'Deep reasoning, best for multi-screen captures.'
+      },
+      {
+        name: 'mixtral-vision',
+        download: '≈22 GB download',
+        ram: 'Needs ≥ 48 GB system RAM',
+        vram: '≥ 32 GB VRAM',
+        notes: 'Premium quality, slower pull/install.'
+      }
+    ]
+  }
+];
+
+const WEB_MODEL_OPTIONS = [
+  {
+    id: 'web-gpt4o',
+    label: 'GPT-4o Mini (Ollama Cloud)',
+    provider: 'Ollama Cloud',
+    model: 'gpt4o-mini',
+    endpoint: 'https://ollama.com/',
+    url: 'https://ollama.com/pricing',
+    notes: 'Hosted multimodal model with great latency. Requires Ollama Cloud API key.',
+    instructions: 'Switch to Cloud mode, set endpoint to https://ollama.com/, and paste your Ollama API key.'
+  },
+  {
+    id: 'web-claude3',
+    label: 'Claude 3 Haiku (Ollama Cloud)',
+    provider: 'Ollama Cloud',
+    model: 'claude-3-haiku',
+    endpoint: 'https://ollama.com/',
+    url: 'https://ollama.com/models/claude-3-haiku',
+    notes: 'Fastest Anthropic hosted option with solid screenshot reasoning.',
+    instructions: 'Enable Cloud mode with your Ollama key. Select Claude 3 Haiku as the active model.'
+  },
+  {
+    id: 'web-gemini15',
+    label: 'Gemini 1.5 Flash (Ollama Cloud)',
+    provider: 'Ollama Cloud',
+    model: 'gemini-1.5-flash',
+    endpoint: 'https://ollama.com/',
+    url: 'https://ollama.com/models/gemini-1.5-flash',
+    notes: 'High throughput hosted model ideal for large screenshot batches.',
+    instructions: 'Use Ollama Cloud endpoint and key, then select Gemini 1.5 Flash as your model.'
+  }
+];
+
+const WORKFLOW_PHASES = Object.freeze({
+  PLANNING: 'planning',
+  EXECUTION: 'execution'
+});
+const WORKFLOW_STORAGE_VERSION = 1;
+
+function loadWorkflowPhasesFromStorage() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.workflow);
+    if (!raw) {
+      return {};
+    }
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      if (parsed.version === WORKFLOW_STORAGE_VERSION && parsed.sessions) {
+        return parsed.sessions;
+      }
+      return parsed.sessions ? parsed.sessions : parsed;
+    }
+  } catch (error) {
+    console.warn('Failed to parse workflow storage', error);
+  }
+  return {};
+}
+
+function persistWorkflowPhases() {
+  try {
+    localStorage.setItem(
+      STORAGE_KEYS.workflow,
+      JSON.stringify({
+        version: WORKFLOW_STORAGE_VERSION,
+        sessions: state.workflowPhases || {}
+      })
+    );
+  } catch (error) {
+    console.warn('Failed to persist workflow state', error);
+  }
+}
+
+const MAX_CLIENT_IMAGE_DIMENSION = 1600;
+const MAX_CLIENT_IMAGE_BYTES = 2 * 1024 * 1024;
+const MAX_CHAT_IMAGES = 4;
+
+async function downscaleImageDataUrl(dataUrl, mimeType = 'image/png') {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      const maxEdge = Math.max(image.width, image.height);
+      const ratio = maxEdge > MAX_CLIENT_IMAGE_DIMENSION ? MAX_CLIENT_IMAGE_DIMENSION / maxEdge : 1;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(image.width * ratio);
+      canvas.height = Math.round(image.height * ratio);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const targetMime = mimeType === 'image/png' ? 'image/png' : 'image/jpeg';
+      const quality = targetMime === 'image/png' ? 0.92 : 0.85;
+      resolve(canvas.toDataURL(targetMime, quality));
+    };
+    image.onerror = reject;
+    image.src = dataUrl;
+  });
+}
+
+function estimateBase64Bytes(dataUrl = '') {
+  if (!dataUrl) return 0;
+  const commaIdx = dataUrl.indexOf(',');
+  const base64 = commaIdx !== -1 ? dataUrl.slice(commaIdx + 1) : dataUrl;
+  return Math.round((base64.length * 3) / 4);
+}
+
+async function optimizeImageDataUrl(dataUrl, mimeType = 'image/png') {
+  let optimized = dataUrl;
+  let attempts = 0;
+  while (estimateBase64Bytes(optimized) > MAX_CLIENT_IMAGE_BYTES && attempts < 3) {
+    optimized = await downscaleImageDataUrl(optimized, mimeType);
+    attempts += 1;
+  }
+  return {
+    dataUrl: optimized,
+    size: estimateBase64Bytes(optimized),
+    type: mimeType
+  };
+}
+
+async function captureScreenshotFrame() {
+  if (!navigator.mediaDevices?.getDisplayMedia) {
+    throw new Error('Screen capture not supported in this browser');
+  }
+
+  const stream = await navigator.mediaDevices.getDisplayMedia({
+    video: { frameRate: 30 },
+    audio: false
+  });
+
+  try {
+    const [track] = stream.getVideoTracks();
+    const video = document.createElement('video');
+    video.srcObject = new MediaStream([track]);
+    await video.play();
+    await new Promise((resolve) => {
+      if (video.readyState >= 2) {
+        resolve();
+      } else {
+        video.onloadeddata = () => resolve();
+      }
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL('image/png', 0.92);
+    return {
+      name: `Screenshot-${new Date().toISOString().replace(/[:.]/g, '-')}.png`,
+      type: 'image/png',
+      dataUrl
+    };
+  } finally {
+    stream.getTracks().forEach((track) => track.stop());
+  }
+}
+
+function loadModelReadinessFlag() {
+  try {
+    return localStorage.getItem(STORAGE_KEYS.modelReady) === 'true';
+  } catch (_) {
+    return false;
+  }
+}
+
+function persistModelReadinessFlag(value) {
+  try {
+    if (value) {
+      localStorage.setItem(STORAGE_KEYS.modelReady, 'true');
+    } else {
+      localStorage.removeItem(STORAGE_KEYS.modelReady);
+    }
+  } catch (_) {
+    // ignore
+  }
+}
+
+function hasUsableModel() {
+  const activeModel = state.settings?.model;
+  if (!activeModel) {
+    return false;
+  }
+  const installed = state.availableModels.some((model) => model.name === activeModel);
+  const ollamaMode = (state.settings?.ollamaMode || 'local').toLowerCase();
+  const usingCloud = ollamaMode === 'cloud';
+  const usingWebPreset = activeModel.toLowerCase().startsWith('web-');
+  return Boolean(installed || usingCloud || usingWebPreset);
+}
+
+function isModelReadyForImages() {
+  const ready = hasUsableModel();
+  if (ready && !state.modelPrepAcknowledged) {
+    state.modelPrepAcknowledged = true;
+    persistModelReadinessFlag(true);
+  }
+  if (!ready && state.modelPrepAcknowledged) {
+    state.modelPrepAcknowledged = false;
+    persistModelReadinessFlag(false);
+  }
+  return ready;
+}
+
+function markModelReady(source = 'manual', options = {}) {
+  if (!hasUsableModel()) {
+    if (!options.silent) {
+      showNotification('Select or install a model to enable screenshots.', 'warning', 2500);
+    }
+    return;
+  }
+  state.modelPrepAcknowledged = true;
+  persistModelReadinessFlag(true);
+  closeModelPrepModal({ silent: true });
+  if (!options.silent) {
+    showNotification('Model ready for image uploads.', 'success', 2200);
+  }
+  window.dispatchEvent(
+    new CustomEvent('ollama-model-ready', { detail: { source, timestamp: Date.now() } })
+  );
+}
+
+function evaluateModelReadiness(options = {}) {
+  if (isModelReadyForImages()) {
+    if (!options.skipEvent) {
+      window.dispatchEvent(
+        new CustomEvent('ollama-model-ready', { detail: { source: 'auto', timestamp: Date.now() } })
+      );
+    }
+    return true;
+  }
+  return false;
+}
+
+function ensureModelReadyBeforeImages(reason = 'upload') {
+  if (isModelReadyForImages()) {
+    return true;
+  }
+  openModelPrepModal(reason);
+  return false;
+}
+
 const initialThinkingPreference = loadThinkingPreference();
+const initialWorkflowPhases = loadWorkflowPhasesFromStorage();
 
 const state = {
-  currentPage: 'chat',
+  currentPage: 'home',  // Changed to 'home' as landing page
   chat: [],
   sessionHistories: {},
   localHistory: loadLocalHistory(),
@@ -84,7 +411,27 @@ const state = {
   availableModels: [],
   thinkingEnabled: initialThinkingPreference,
   thinkingMode: DEFAULT_THINKING_MODE,
-  instructionPresets: loadInstructionPresets()
+  instructionPresets: loadInstructionPresets(),
+  currentImages: [],
+  suggestedModels: [],
+  modelPrepAcknowledged: loadModelReadinessFlag(),
+  modelPrepLastReason: null,
+  modelPrepModalOpen: false,
+  workflowPhases: initialWorkflowPhases,
+
+  // Dual-mode support fields
+  currentMode: 'instant',  // 'instant' | 'planning'
+  modeData: {
+    instant: {
+      images: [],
+      quickPrompts: []
+    },
+    planning: {
+      images: [],
+      draftData: null,
+      isLocked: false
+    }
+  }
 };
 
 persistThinkingPreference(state.thinkingEnabled);
@@ -94,6 +441,15 @@ let presetRefreshPromise = null;
 
 window.appState = state;
 
+if (typeof window !== 'undefined') {
+  window.WorkflowBridge = {
+    getMountConfig: buildPlanningMountConfig,
+    saveDraft: saveWorkflowPlanningDraft,
+    completePlanning: completePlanningPhase,
+    resetPlanning: resetPlanningPhase
+  };
+}
+
 // Global navigation function for back buttons
 window.navigateToPage = function(pageId) {
   state.currentPage = pageId;
@@ -101,16 +457,323 @@ window.navigateToPage = function(pageId) {
   renderPage(pageId);
 };
 
+// ==================== MODAL UTILITIES ====================
+
+/**
+ * Show a permission modal asking user to confirm an action
+ * @param {string} title - Modal title
+ * @param {string} message - Modal message
+ * @param {Object} options - Additional options
+ * @returns {Promise<boolean>} - Resolves true if user approved, false if denied
+ */
+function askPermission(title, message, options = {}) {
+  return new Promise((resolve) => {
+    // Create modal overlay
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10000;
+      backdrop-filter: blur(4px);
+    `;
+
+    // Create modal
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+      background: var(--surface);
+      border-radius: 16px;
+      padding: 2rem;
+      max-width: 500px;
+      width: 90%;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border);
+    `;
+
+    // Modal HTML
+    modal.innerHTML = `
+      <div style="margin-bottom: 1.5rem;">
+        <h3 style="margin: 0 0 0.75rem 0; color: var(--text); font-size: 1.25rem;">${escapeHtml(title)}</h3>
+        <p style="margin: 0; color: var(--text-light); line-height: 1.5;">${escapeHtml(message)}</p>
+        ${options.details ? `<p style="margin: 0.75rem 0 0 0; color: var(--text-light); font-size: 0.875rem; font-family: monospace; background: var(--hover); padding: 0.5rem; border-radius: 4px;">${escapeHtml(options.details)}</p>` : ''}
+      </div>
+      <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
+        <button id="modal-cancel-btn" style="
+          padding: 0.625rem 1.25rem;
+          border-radius: 8px;
+          border: 1px solid var(--border);
+          background: transparent;
+          color: var(--text);
+          cursor: pointer;
+          font-size: 0.95rem;
+        ">${options.cancelLabel || 'Cancel'}</button>
+        <button id="modal-confirm-btn" style="
+          padding: 0.625rem 1.25rem;
+          border-radius: 8px;
+          border: none;
+          background: linear-gradient(135deg, #0084ff 0%, #0066cc 100%);
+          color: white;
+          cursor: pointer;
+          font-size: 0.95rem;
+          font-weight: 600;
+        ">${options.confirmLabel || 'Confirm'}</button>
+      </div>
+    `;
+
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    // Event handlers
+    const cleanup = () => {
+      overlay.remove();
+    };
+
+    document.getElementById('modal-cancel-btn').addEventListener('click', () => {
+      cleanup();
+      resolve(false);
+    });
+
+    document.getElementById('modal-confirm-btn').addEventListener('click', () => {
+      cleanup();
+      resolve(true);
+    });
+
+    // Close on overlay click
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        cleanup();
+        resolve(false);
+      }
+    });
+
+    // Close on escape key
+    const escapeHandler = (e) => {
+      if (e.key === 'Escape') {
+        cleanup();
+        resolve(false);
+        document.removeEventListener('keydown', escapeHandler);
+      }
+    };
+    document.addEventListener('keydown', escapeHandler);
+  });
+}
+
+/**
+ * Handle vision-aware image upload with automatic model detection
+ * @param {FileList|Array} files - Image files to upload
+ * @returns {Promise<Object>} - Upload result with vision check data
+ */
+async function handleVisionAwareUpload(files) {
+  try {
+    const imageFiles = Array.from(files);
+    const imageCount = imageFiles.length;
+
+    // Check vision capabilities
+    const visionCheck = await fetch('/api/vision/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageCount })
+    });
+
+    if (!visionCheck.ok) {
+      throw new Error('Failed to check vision capabilities');
+    }
+
+    const visionData = await visionCheck.json();
+
+    // If model needs to be pulled, ask for permission
+    if (visionData.needsPull && visionData.suggestedModel) {
+      const modelName = visionData.suggestedModel;
+      const approved = await askPermission(
+        'Vision Model Required',
+        `To process images, we need to download the ${modelName} vision model from Ollama.`,
+        {
+          details: `This will download approximately 3-5GB of data. The model will be cached for future use.`,
+          confirmLabel: `Pull ${modelName}`,
+          cancelLabel: 'Cancel'
+        }
+      );
+
+      if (!approved) {
+        return { success: false, cancelled: true };
+      }
+
+      // Pull the model with streaming progress
+      const pullResult = await pullModelWithProgress(modelName);
+      if (!pullResult.success) {
+        throw new Error('Failed to pull vision model');
+      }
+
+      visionData.model = modelName;
+      visionData.needsPull = false;
+    }
+
+    // Process images (convert to base64, etc.)
+    const processedImages = await Promise.all(
+      imageFiles.map(file => convertImageToBase64(file))
+    );
+
+    return {
+      success: true,
+      images: processedImages,
+      visionData,
+      count: imageCount
+    };
+
+  } catch (error) {
+    console.error('[VisionUpload] Error:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * Pull a model with streaming progress feedback
+ * @param {string} modelName - Name of model to pull
+ * @returns {Promise<Object>} - Pull result
+ */
+async function pullModelWithProgress(modelName) {
+  return new Promise((resolve) => {
+    // Create progress modal
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.7); display: flex;
+      align-items: center; justify-content: center; z-index: 10001;
+    `;
+
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+      background: var(--surface); border-radius: 16px; padding: 2rem;
+      max-width: 400px; width: 90%; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    `;
+
+    modal.innerHTML = `
+      <h3 style="margin: 0 0 1rem 0; color: var(--text);">Downloading ${escapeHtml(modelName)}</h3>
+      <div id="pull-progress" style="color: var(--text-light); margin-bottom: 1rem;">Starting download...</div>
+      <div style="background: var(--hover); height: 8px; border-radius: 4px; overflow: hidden;">
+        <div id="pull-progress-bar" style="background: linear-gradient(90deg, #0084ff, #0066cc); height: 100%; width: 0%; transition: width 0.3s;"></div>
+      </div>
+    `;
+
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    // Start streaming pull
+    fetch('/api/models/pull', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ modelName })
+    })
+    .then(response => {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      const processStream = async () => {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.trim().startsWith('data:')) {
+              try {
+                const data = JSON.parse(line.slice(5).trim());
+
+                // Update progress
+                if (data.status === 'pulling') {
+                  const progressEl = document.getElementById('pull-progress');
+                  const progressBar = document.getElementById('pull-progress-bar');
+
+                  if (progressEl && data.completed && data.total) {
+                    const percent = Math.round((data.completed / data.total) * 100);
+                    progressEl.textContent = `Downloading: ${percent}%`;
+                    if (progressBar) progressBar.style.width = `${percent}%`;
+                  }
+                } else if (data.status === 'complete') {
+                  overlay.remove();
+                  resolve({ success: true });
+                  return;
+                }
+              } catch (e) {
+                // Skip invalid JSON
+              }
+            }
+          }
+        }
+      };
+
+      processStream().catch(error => {
+        console.error('[PullModel] Stream error:', error);
+        overlay.remove();
+        resolve({ success: false, error: error.message });
+      });
+    })
+    .catch(error => {
+      console.error('[PullModel] Fetch error:', error);
+      overlay.remove();
+      resolve({ success: false, error: error.message });
+    });
+  });
+}
+
+/**
+ * Convert image file to base64
+ * @param {File} file - Image file
+ * @returns {Promise<string>} - Base64 data URL
+ */
+function convertImageToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => resolve(e.target.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// ==================== END MODAL UTILITIES ====================
+
 const elements = {
-  nav: document.getElementById('page-nav'),
-  root: document.getElementById('page-root'),
-  status: document.getElementById('connection-status'),
-  activeModel: document.getElementById('active-model')
+  nav: null,
+  root: null,
+  status: null,
+  activeModel: null
 };
 
-init();
+// Wait for DOM to be ready before initializing
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initializeApp);
+} else {
+  // DOM already loaded
+  initializeApp();
+}
+
+function initializeApp() {
+  // Get DOM elements after DOM is ready
+  elements.nav = document.getElementById('page-nav');
+  elements.root = document.getElementById('page-root');
+  elements.status = document.getElementById('connection-status');
+  elements.activeModel = document.getElementById('active-model');
+
+  // Now initialize the app
+  init();
+}
 
 async function init() {
+  // Start error monitoring for auto-cleanup
+  startErrorMonitoring();
   await bootstrapSettings();
   await loadSessions();
   await loadAvailableModels();
@@ -141,25 +804,117 @@ function getPageRegistry() {
   }, {});
 }
 
+/**
+ * Validate settings object for integrity
+ * @param {Object} settings - Settings to validate
+ * @returns {Object} - Validated and sanitized settings
+ */
+function validateSettings(settings) {
+  if (!settings || typeof settings !== 'object') {
+    console.warn('[Settings] Invalid settings object, using defaults');
+    return {};
+  }
+
+  const validated = { ...settings };
+
+  // Validate model name (alphanumeric, dots, hyphens, underscores, colons)
+  if (validated.model && !/^[a-zA-Z0-9._:-]+$/.test(validated.model)) {
+    console.warn('[Settings] Invalid model name:', validated.model);
+    delete validated.model;
+  }
+
+  // Validate API endpoint
+  if (validated.apiEndpoint) {
+    try {
+      new URL(validated.apiEndpoint);
+    } catch (e) {
+      console.warn('[Settings] Invalid API endpoint:', validated.apiEndpoint);
+      delete validated.apiEndpoint;
+    }
+  }
+
+  // Validate maxHistory (must be positive integer)
+  if (validated.maxHistory !== undefined) {
+    const maxHistory = parseInt(validated.maxHistory, 10);
+    if (isNaN(maxHistory) || maxHistory < 0 || maxHistory > 1000) {
+      console.warn('[Settings] Invalid maxHistory:', validated.maxHistory);
+      validated.maxHistory = 20;
+    } else {
+      validated.maxHistory = maxHistory;
+    }
+  }
+
+  // Validate thinking mode
+  const validThinkingModes = ['off', 'standard', 'max'];
+  if (validated.thinkingMode && !validThinkingModes.includes(validated.thinkingMode)) {
+    console.warn('[Settings] Invalid thinking mode:', validated.thinkingMode);
+    validated.thinkingMode = 'max';
+  }
+
+  // Validate boolean settings
+  const booleanSettings = ['enableStructuredPrompts', 'autoSync'];
+  booleanSettings.forEach(key => {
+    if (validated[key] !== undefined && typeof validated[key] !== 'boolean') {
+      validated[key] = Boolean(validated[key]);
+    }
+  });
+
+  return validated;
+}
+
+/**
+ * Persist settings with integrity hash
+ * @param {Object} settings - Settings to persist
+ */
+async function persistSettingsWithIntegrity(settings) {
+  try {
+    const validated = validateSettings(settings);
+    const response = await fetchJson('/api/settings', {
+      method: 'POST',
+      body: JSON.stringify(validated)
+    });
+
+    if (response.success) {
+      console.log('[Settings] Persisted successfully with integrity check');
+      showNotification('Settings saved successfully', 'success', 2000);
+      return true;
+    }
+
+    return false;
+  } catch (error) {
+    console.error('[Settings] Failed to persist:', error);
+    showNotification('Failed to save settings', 'error', 3000);
+    return false;
+  }
+}
+
 async function bootstrapSettings() {
   try {
     const data = await fetchJson('/api/settings');
+
+    // Validate presets
     state.instructionPresets = normalizeInstructionPresets(
       data.presets,
       data.defaults?.systemInstructions || data.current?.systemInstructions
     );
     persistInstructionPresets(state.instructionPresets);
     refreshInstructionPresetControls();
+
     const normalizedBase = normalizeBaseUrl(data.current?.backendBaseUrl);
+
     // Preserve client-side settings stored locally
     const preservedSettings = {
       enableStructuredPrompts: state.settings?.enableStructuredPrompts === true
     };
-    state.settings = {
+
+    // Validate and merge settings
+    const rawSettings = {
       ...data.current,
       backendBaseUrl: normalizedBase,
       ...preservedSettings
     };
+
+    state.settings = validateSettings(rawSettings);
     state.baseUrl = normalizedBase;
     state.settings.thinkingMode = DEFAULT_THINKING_MODE;
     state.thinkingMode = DEFAULT_THINKING_MODE;
@@ -173,6 +928,8 @@ async function bootstrapSettings() {
     applyTheme(state.settings.theme);
     persistClientSettings();
     notifySettingsSubscribers();
+    renderVisionProviderDetails();
+    updateVisionBridgeStatus();
     if (elements.status) {
       elements.status.textContent = 'online';
       elements.status.classList.remove('badge-offline');
@@ -204,6 +961,8 @@ async function bootstrapSettings() {
       enableStructuredPrompts: structuredSetting === true
     };
     notifySettingsSubscribers();
+    renderVisionProviderDetails();
+    updateVisionBridgeStatus();
   }
 }
 
@@ -225,6 +984,7 @@ async function loadSessions() {
       deduped.unshift(session);
     }
     state.sessions = deduped;
+    syncWorkflowStateWithSessions();
     const desiredId =
       state.activeSessionId ||
       state.sessions.find((session) => session.id === data.activeSessionId)?.id ||
@@ -236,6 +996,7 @@ async function loadSessions() {
       state.historySessionId = state.activeSessionId;
     }
     persistActiveSession();
+    syncModeFromActiveSession(); // Sync mode from session
     renderSessionSelector();
     renderHistoryPage();
     updateSessionInstructionsPreview();
@@ -254,24 +1015,266 @@ async function loadSessions() {
   }
 }
 
-async function loadAvailableModels() {
+/**
+ * Retry wrapper with exponential backoff
+ * @param {Function} fn - Async function to retry
+ * @param {Object} options - Retry options
+ * @returns {Promise} - Result of successful execution
+ */
+async function retryWithBackoff(fn, options = {}) {
+  const {
+    maxRetries = 3,
+    initialDelay = 1000,
+    maxDelay = 10000,
+    backoffFactor = 2,
+    onRetry = null
+  } = options;
+
+  let lastError;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+
+      if (attempt < maxRetries) {
+        const delay = Math.min(initialDelay * Math.pow(backoffFactor, attempt), maxDelay);
+        console.warn(`[Retry] Attempt ${attempt + 1}/${maxRetries} failed. Retrying in ${delay}ms...`, error.message);
+
+        if (onRetry) {
+          onRetry(attempt + 1, delay, error);
+        }
+
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+/**
+ * Verify model is actually available and functional
+ * @param {string} modelName - Model to verify
+ * @returns {Promise<boolean>} - True if model is verified
+ */
+async function verifyModel(modelName) {
   try {
     const data = await fetchJson('/api/models');
+    const models = data.models || [];
+    return models.some(m => m.name === modelName);
+  } catch (error) {
+    console.error('[Model Verification] Failed:', error);
+    return false;
+  }
+}
+
+/**
+ * Clean up persistent error states
+ * Removes error flags older than threshold
+ */
+function cleanupPersistentErrors() {
+  const ERROR_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
+  const now = Date.now();
+
+  // Clean up model load errors
+  if (state.modelLoadError && (now - state.modelLoadError.timestamp) > ERROR_EXPIRY_MS) {
+    console.log('[Error Cleanup] Removing expired model load error');
+    delete state.modelLoadError;
+  }
+
+  // Clean up streaming errors
+  if (state.streamError && (now - state.streamError.timestamp) > ERROR_EXPIRY_MS) {
+    console.log('[Error Cleanup] Removing expired stream error');
+    delete state.streamError;
+  }
+
+  // Clean up connection errors
+  if (state.connectionError && (now - state.connectionError.timestamp) > ERROR_EXPIRY_MS) {
+    console.log('[Error Cleanup] Removing expired connection error');
+    delete state.connectionError;
+  }
+}
+
+/**
+ * Reset stuck state (when streaming hangs, etc.)
+ */
+function resetStuckState() {
+  console.log('[State Reset] Resetting potentially stuck state');
+
+  // Abort any ongoing streams
+  if (state.streamController) {
+    try {
+      state.streamController.abort();
+    } catch (e) {
+      console.warn('[State Reset] Error aborting stream:', e);
+    }
+    state.streamController = null;
+  }
+
+  // Reset streaming flag
+  if (state.isStreaming) {
+    state.isStreaming = false;
+  }
+
+  // Reset session sending states
+  Object.keys(state.sessionSendingStates || {}).forEach(sessionId => {
+    if (state.sessionSendingStates[sessionId]) {
+      console.log(`[State Reset] Resetting stuck sending state for session ${sessionId}`);
+      state.sessionSendingStates[sessionId] = false;
+    }
+  });
+
+  // Re-enable UI elements
+  const sendBtn = document.getElementById('send-btn');
+  if (sendBtn) {
+    sendBtn.disabled = false;
+  }
+
+  const chatInput = document.getElementById('chat-input');
+  if (chatInput) {
+    chatInput.disabled = false;
+  }
+
+  // Clear any lingering error messages
+  cleanupPersistentErrors();
+
+  console.log('[State Reset] State reset complete');
+  showNotification('State reset successfully', 'success', 2000);
+}
+
+/**
+ * Monitor for persistent errors and auto-cleanup
+ * Runs every minute to check for stale error states
+ */
+function startErrorMonitoring() {
+  // Run cleanup every minute
+  setInterval(() => {
+    cleanupPersistentErrors();
+
+    // Check for stuck streaming state (streaming flag set but no controller)
+    if (state.isStreaming && !state.streamController) {
+      const elapsedTime = Date.now() - (state.lastStreamStart || 0);
+      // If stuck for more than 2 minutes, auto-reset
+      if (elapsedTime > 120000) {
+        console.warn('[Error Monitor] Detected stuck streaming state, auto-resetting');
+        resetStuckState();
+      }
+    }
+  }, 60000); // Every minute
+}
+
+/**
+ * Graceful degradation - fallback model selection
+ * @returns {string|null} - Fallback model name
+ */
+function getFallbackModel() {
+  const fallbackPriority = [
+    'qwen3:1.7B',
+    'llama2:latest',
+    'mistral:latest',
+    'phi3:latest'
+  ];
+
+  for (const modelName of fallbackPriority) {
+    if (state.availableModels.some(m => m.name === modelName)) {
+      console.log(`[Fallback] Using fallback model: ${modelName}`);
+      return modelName;
+    }
+  }
+
+  // If no preferred fallback, use first available model
+  if (state.availableModels.length > 0) {
+    const firstModel = state.availableModels[0].name;
+    console.log(`[Fallback] Using first available model: ${firstModel}`);
+    return firstModel;
+  }
+
+  return null;
+}
+
+async function loadAvailableModels() {
+  try {
+    const data = await retryWithBackoff(
+      () => fetchJson('/api/models'),
+      {
+        maxRetries: 3,
+        initialDelay: 1000,
+        maxDelay: 5000,
+        onRetry: (attempt, delay, error) => {
+          console.log(`[Model Loading] Retry ${attempt}/3 after ${delay}ms due to: ${error.message}`);
+          showNotification(`Retrying model load (${attempt}/3)...`, 'info', 2000);
+        }
+      }
+    );
+
     state.availableModels = data.models || [];
+    console.log(`[Model Loading] Successfully loaded ${state.availableModels.length} models`);
+
+    renderModelPrepModalSections();
+    evaluateModelReadiness();
     if (document.getElementById('model-selector')) {
       renderModelSelector();
       updateThinkingStatus();
     }
+    await ensureValidModelSelection('model-load');
+
+    // Clear any error state
+    if (state.modelLoadError) {
+      delete state.modelLoadError;
+    }
+    clearPersistentError('model-load');
   } catch (error) {
-    console.error('Failed to load available models', error);
+    console.error('[Model Loading] Failed after retries:', error);
     state.availableModels = [];
+    state.modelLoadError = {
+      message: error.message,
+      timestamp: Date.now()
+    };
+    registerPersistentError('model-load', error);
+
     // Update connection status to offline if there's a connection error
-    if (error.message && (error.message.includes('connect') || error.message.includes('fetch') || error.message.includes('offline'))) {
+    if (elements.status) {
       elements.status.textContent = 'offline';
       elements.status.classList.remove('badge-online');
       elements.status.classList.add('badge-offline');
     }
+
+    // Show user-friendly error message
+    showNotification('Failed to load models. Check if Ollama is running.', 'error', 5000);
   }
+}
+
+async function ensureValidModelSelection(context = 'bootstrap') {
+  const selectedModel = state.settings?.model;
+  if (selectedModel && state.availableModels.some((model) => model.name === selectedModel)) {
+    clearPersistentError('model-validation');
+    return true;
+  }
+
+  if (selectedModel) {
+    const exists = await verifyModel(selectedModel);
+    if (exists) {
+      return true;
+    }
+    registerPersistentError('model-validation', new Error(`Model ${selectedModel} unavailable`));
+    showNotification(`Model ${selectedModel} not detected. Selecting fallback.`, 'warning', 3000);
+  }
+
+  const fallback = getFallbackModel();
+  if (fallback) {
+    state.settings = state.settings || {};
+    state.settings.model = fallback;
+    persistClientSettings();
+    if (elements.activeModel) {
+      elements.activeModel.textContent = `model: ${fallback}`;
+    }
+    renderModelSelector();
+    renderChatMeta();
+    clearPersistentError('model-validation');
+    return true;
+  }
+  return false;
 }
 
 async function loadApiKeys() {
@@ -343,7 +1346,9 @@ function renderNav() {
   if (!elements.nav) return;
 
   const registry = getPageRegistry();
-  const buttons = Object.values(registry).map((page) => {
+  const buttons = Object.values(registry)
+    .filter((page) => !page.hidden)
+    .map((page) => {
     const button = document.createElement('button');
     button.textContent = page.label;
     button.dataset.page = page.id;
@@ -356,7 +1361,7 @@ function renderNav() {
       renderPage(page.id);
     });
     return button;
-  });
+    });
 
   elements.nav.innerHTML = '';
   buttons.forEach((button) => elements.nav.appendChild(button));
@@ -369,6 +1374,10 @@ function renderPage(pageId) {
   if (!definition) {
     elements.root.innerHTML = '<p>Page not found.</p>';
     return;
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('pagechange', { detail: { page: pageId } }));
   }
 
   if (definition.type === 'component') {
@@ -388,9 +1397,27 @@ function renderComponentPage(templateId) {
   elements.root.innerHTML = '';
   elements.root.appendChild(template.content.cloneNode(true));
 
+  if (templateId !== 'chat-page' && window.__workflowPhaseHandler) {
+    window.removeEventListener('workflow-phase-change', window.__workflowPhaseHandler);
+    window.__workflowPhaseHandler = null;
+  }
+
   switch (templateId) {
+    case 'home-page':
+      attachHomeHandlers();
+      break;
     case 'chat-page':
       attachChatHandlers();
+      break;
+    case 'planning-page':
+      // Initialize planning module if available
+      if (window.PlanningModule && typeof window.PlanningModule.init === 'function') {
+        window.PlanningModule.init();
+      } else if (typeof attachPlanningHandlers === 'function') {
+        attachPlanningHandlers();
+      } else {
+        console.warn('[Planning] Planning module not loaded');
+      }
       break;
     case 'sessions-page':
       renderSessionsPage();
@@ -407,6 +1434,578 @@ function renderComponentPage(templateId) {
     default:
       break;
   }
+}
+
+// Attach event handlers for the home page
+function attachHomeHandlers() {
+  // Mode selection buttons
+  const modeButtons = document.querySelectorAll('.mode-select-btn');
+  modeButtons.forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const mode = btn.dataset.mode;
+      await handleModeSelection(mode);
+    });
+  });
+
+  // Settings button
+  const settingsBtn = document.getElementById('home-settings-btn');
+  if (settingsBtn) {
+    settingsBtn.addEventListener('click', () => {
+      state.currentPage = 'settings';
+      renderPage('settings');
+    });
+  }
+
+  // Add hover effects for mode cards
+  const modeCards = document.querySelectorAll('.mode-card');
+  modeCards.forEach(card => {
+    card.addEventListener('click', () => {
+      const mode = card.dataset.mode;
+      if (mode) {
+        const btn = card.querySelector('.mode-select-btn');
+        if (btn) btn.click();
+      }
+    });
+  });
+}
+
+// Handle mode selection from home page
+async function handleModeSelection(mode) {
+  try {
+    // Update state mode
+    state.currentMode = mode;
+
+    // Use existing active session or default session
+    let activeSession = state.sessions.find(s => s.id === state.activeSessionId);
+
+    // If no active session, use default or create one
+    if (!activeSession) {
+      activeSession = state.sessions.find(s => s.id === 'default');
+    }
+
+    // If still no session, create a new one
+    if (!activeSession) {
+      const sessionName = mode === 'instant'
+        ? `Instant Chat - ${new Date().toLocaleDateString()}`
+        : `Planning Session - ${new Date().toLocaleDateString()}`;
+
+      const response = await fetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: sessionName,
+          mode: mode,
+          instructions: ''
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create session');
+      }
+
+      activeSession = await response.json();
+      state.sessions.push(activeSession);
+      state.activeSessionId = activeSession.id;
+      saveActiveSessionPreference(activeSession.id);
+    } else {
+      // Update existing session mode
+      state.activeSessionId = activeSession.id;
+      saveActiveSessionPreference(activeSession.id);
+    }
+
+    // Navigate to appropriate page based on mode
+    if (mode === 'instant') {
+      state.currentPage = 'chat';
+      renderPage('chat');
+    } else if (mode === 'planning') {
+      state.currentPage = 'planning';
+      renderPage('planning');
+    }
+
+    console.log(`[Home] Mode selected: ${mode}, Session: ${activeSession.id}`);
+  } catch (error) {
+    console.error('[Home] Error selecting mode:', error);
+    alert(`Failed to start ${mode} mode: ${error.message}\n\nPlease check the console for details.`);
+  }
+}
+
+/**
+ * Switch between instant and planning modes with draft handling
+ * @param {string} targetMode - The mode to switch to ('instant' | 'planning')
+ */
+async function switchMode(targetMode) {
+  try {
+    const currentMode = state.currentMode;
+    const activeSession = state.sessions.find(s => s.id === state.activeSessionId);
+
+    if (!activeSession) {
+      throw new Error('No active session');
+    }
+
+    // If switching from planning, check for unsaved data
+    if (currentMode === 'planning') {
+      const planningData = state.modeData.planning.draftData;
+      const hasUnsavedData = planningData && (
+        planningData.answers?.objective ||
+        planningData.answers?.context ||
+        planningData.images?.length > 0
+      );
+
+      if (hasUnsavedData && planningData.status !== 'complete') {
+        // Prompt user for action
+        const choice = await showDraftHandlingModal();
+
+        switch (choice) {
+          case 'save':
+            // Save draft and switch
+            await savePlanningDraft(activeSession.id, planningData);
+            break;
+
+          case 'transfer':
+            // Transfer to instant mode
+            await transferPlanningToInstant();
+            // Switch will happen in transferPlanningToInstant
+            return;
+
+          case 'discard':
+            // Just switch without saving
+            break;
+
+          case 'cancel':
+            // User cancelled, don't switch
+            return;
+        }
+      }
+    }
+
+    // Call backend to switch mode
+    const response = await fetch(`/api/sessions/${activeSession.id}/mode/switch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        targetMode,
+        saveDraft: currentMode === 'planning'
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to switch mode');
+    }
+
+    const result = await response.json();
+
+    // Update local state
+    state.currentMode = targetMode;
+    activeSession.mode = targetMode;
+
+    // Update session in state
+    const sessionIndex = state.sessions.findIndex(s => s.id === activeSession.id);
+    if (sessionIndex >= 0) {
+      state.sessions[sessionIndex] = result.session;
+    }
+
+    // Navigate to appropriate page
+    if (targetMode === 'instant') {
+      state.currentPage = 'chat';
+      renderPage('chat');
+    } else if (targetMode === 'planning') {
+      state.currentPage = 'planning';
+      renderPage('planning');
+    }
+
+    console.log(`[Mode] Switched from ${currentMode} to ${targetMode}`);
+
+  } catch (error) {
+    console.error('[Mode] Error switching mode:', error);
+    alert(`Failed to switch to ${targetMode} mode. ${error.message}`);
+  }
+}
+
+/**
+ * Show modal for handling unsaved planning draft
+ * @returns {Promise<string>} - User choice: 'save', 'transfer', 'discard', or 'cancel'
+ */
+function showDraftHandlingModal() {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.6); display: flex;
+      align-items: center; justify-content: center; z-index: 10000;
+      backdrop-filter: blur(4px);
+    `;
+
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+      background: var(--surface); border-radius: 16px; padding: 2rem;
+      max-width: 500px; width: 90%;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border);
+    `;
+
+    modal.innerHTML = `
+      <h3 style="margin: 0 0 1rem 0; color: var(--text); font-size: 1.25rem;">Unsaved Planning Data</h3>
+      <p style="margin: 0 0 1.5rem 0; color: var(--text-light); line-height: 1.5;">
+        You have unsaved planning work. What would you like to do?
+      </p>
+      <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+        <button id="draft-save-btn" style="
+          padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--border);
+          background: var(--background); color: var(--text); cursor: pointer;
+          text-align: left; font-size: 0.95rem;
+        ">
+          <strong>Save Draft</strong> - Save and switch to Instant Mode
+        </button>
+        <button id="draft-transfer-btn" style="
+          padding: 0.75rem 1rem; border-radius: 8px; border: none;
+          background: linear-gradient(135deg, #0084ff, #0066cc); color: white;
+          cursor: pointer; text-align: left; font-size: 0.95rem; font-weight: 600;
+        ">
+          <strong>Transfer Data</strong> - Move planning to Instant Mode
+        </button>
+        <button id="draft-discard-btn" style="
+          padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid #ff4444;
+          background: transparent; color: #ff4444; cursor: pointer;
+          text-align: left; font-size: 0.95rem;
+        ">
+          <strong>Discard</strong> - Switch without saving
+        </button>
+        <button id="draft-cancel-btn" style="
+          padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--border);
+          background: transparent; color: var(--text-light); cursor: pointer;
+          font-size: 0.95rem;
+        ">Cancel</button>
+      </div>
+    `;
+
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    const cleanup = () => overlay.remove();
+
+    document.getElementById('draft-save-btn').addEventListener('click', () => {
+      cleanup();
+      resolve('save');
+    });
+
+    document.getElementById('draft-transfer-btn').addEventListener('click', () => {
+      cleanup();
+      resolve('transfer');
+    });
+
+    document.getElementById('draft-discard-btn').addEventListener('click', () => {
+      cleanup();
+      resolve('discard');
+    });
+
+    document.getElementById('draft-cancel-btn').addEventListener('click', () => {
+      cleanup();
+      resolve('cancel');
+    });
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        cleanup();
+        resolve('cancel');
+      }
+    });
+  });
+}
+
+/**
+ * Save planning draft to backend
+ * @param {string} sessionId - Session ID
+ * @param {Object} planningData - Planning data to save
+ */
+async function savePlanningDraft(sessionId, planningData) {
+  try {
+    const response = await fetch(`/api/sessions/${sessionId}/planning/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ planningData })
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to save planning draft');
+    }
+
+    const result = await response.json();
+    console.log('[Planning] Draft saved successfully');
+    return result;
+
+  } catch (error) {
+    console.error('[Planning] Error saving draft:', error);
+    throw error;
+  }
+}
+
+/**
+ * Transfer planning data to instant mode
+ * Planning AI selects relevant data to transfer
+ */
+async function transferPlanningToInstant() {
+  try {
+    const activeSession = state.sessions.find(s => s.id === state.activeSessionId);
+    if (!activeSession) {
+      throw new Error('No active session');
+    }
+
+    const planningData = state.modeData.planning.draftData;
+    if (!planningData) {
+      throw new Error('No planning data to transfer');
+    }
+
+    // Planning AI determines what to transfer
+    const transferPackage = buildPlanningTransferPackage(planningData);
+
+    // Create system message with planning context
+    const systemMessage = {
+      role: 'system',
+      content: transferPackage.prompt,
+      metadata: {
+        source: 'planning',
+        timestamp: new Date().toISOString(),
+        planningId: crypto.randomUUID(),
+        hasImages: transferPackage.images.length > 0
+      }
+    };
+
+    // Add to chat history
+    if (!Array.isArray(state.chat)) {
+      state.chat = [];
+    }
+    state.chat.push(systemMessage);
+
+    // Transfer images to instant mode
+    if (transferPackage.images.length > 0) {
+      state.modeData.instant.images = [...transferPackage.images];
+    }
+
+    // Mark planning as transferred
+    planningData.status = 'transferred';
+    await savePlanningDraft(activeSession.id, planningData);
+
+    // Switch to instant mode
+    state.currentMode = 'instant';
+    activeSession.mode = 'instant';
+
+    // Update session in backend
+    await fetch(`/api/sessions/${activeSession.id}/mode/switch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        targetMode: 'instant',
+        saveDraft: true
+      })
+    });
+
+    // Navigate to chat
+    state.currentPage = 'chat';
+    renderPage('chat');
+
+    console.log('[Planning] Data transferred to instant mode successfully');
+
+    // Show success notification
+    showNotification('Planning data transferred to Instant Mode', 'success');
+
+  } catch (error) {
+    console.error('[Planning] Error transferring data:', error);
+    alert(`Failed to transfer planning data: ${error.message}`);
+    throw error;
+  }
+}
+
+/**
+ * Build transfer package from planning data
+ * Planning AI selects what data is relevant
+ * @param {Object} planningData - Raw planning data
+ * @returns {Object} - Transfer package with prompt and images
+ */
+function buildPlanningTransferPackage(planningData) {
+  const { answers, images, conversation, generatedPrompt } = planningData;
+
+  // Planning AI logic: Determine what's critical to transfer
+  const criticalComponents = [];
+
+  // Always include objective if present
+  if (answers?.objective) {
+    criticalComponents.push(`**Objective**: ${answers.objective}`);
+  }
+
+  // Include context if substantive
+  if (answers?.context && answers.context.length > 20) {
+    criticalComponents.push(`**Context**: ${answers.context}`);
+  }
+
+  // Include constraints if specified
+  if (answers?.constraints && answers.constraints.trim()) {
+    criticalComponents.push(`**Constraints**: ${answers.constraints}`);
+  }
+
+  // Include verification criteria if specified
+  if (answers?.verification && answers.verification.trim()) {
+    criticalComponents.push(`**Success Criteria**: ${answers.verification}`);
+  }
+
+  // Build transfer prompt
+  let transferPrompt = '';
+
+  if (generatedPrompt) {
+    // Use AI-generated prompt if available
+    transferPrompt = generatedPrompt;
+  } else if (criticalComponents.length > 0) {
+    // Build from components
+    transferPrompt = `# Planning Context\n\n${criticalComponents.join('\n\n')}`;
+  } else {
+    // Fallback
+    transferPrompt = '# Planning Session\n\nPlanning data has been transferred to this conversation.';
+  }
+
+  // Add image count if present
+  if (images && images.length > 0) {
+    transferPrompt += `\n\n**Images**: ${images.length} image(s) attached`;
+  }
+
+  return {
+    prompt: transferPrompt,
+    images: images || [],
+    answers: answers || {},
+    metadata: {
+      transferredAt: new Date().toISOString(),
+      conversationSteps: conversation?.length || 0
+    }
+  };
+}
+
+/**
+ * Show a notification toast
+ * @param {string} message - Notification message
+ * @param {string} type - Notification type ('success', 'error', 'info')
+ */
+// showNotification defined later in file - removed duplicate
+
+// ==================== MODE-SPECIFIC IMAGE MANAGEMENT ====================
+
+/**
+ * Get images for the current mode
+ * @returns {Array} - Array of image data URLs
+ */
+function getCurrentModeImages() {
+  const mode = state.currentMode || 'instant';
+
+  if (mode === 'planning') {
+    return state.modeData.planning.images || [];
+  } else {
+    return state.modeData.instant.images || [];
+  }
+}
+
+/**
+ * Set images for the current mode
+ * @param {Array} images - Array of image data URLs
+ */
+function setCurrentModeImages(images) {
+  const mode = state.currentMode || 'instant';
+
+  if (mode === 'planning') {
+    state.modeData.planning.images = images;
+  } else {
+    state.modeData.instant.images = images;
+  }
+
+  // Also update legacy currentImages for backward compatibility
+  state.currentImages = images;
+}
+
+/**
+ * Add an image to the current mode
+ * @param {string} imageDataUrl - Image data URL
+ */
+function addImageToCurrentMode(imageDataUrl) {
+  const mode = state.currentMode || 'instant';
+
+  if (mode === 'planning') {
+    if (!state.modeData.planning.images) {
+      state.modeData.planning.images = [];
+    }
+    state.modeData.planning.images.push(imageDataUrl);
+  } else {
+    if (!state.modeData.instant.images) {
+      state.modeData.instant.images = [];
+    }
+    state.modeData.instant.images.push(imageDataUrl);
+  }
+
+  // Sync to legacy currentImages
+  state.currentImages = getCurrentModeImages();
+}
+
+/**
+ * Remove an image from the current mode
+ * @param {number} index - Index of image to remove
+ */
+function removeImageFromCurrentMode(index) {
+  const mode = state.currentMode || 'instant';
+
+  if (mode === 'planning') {
+    if (state.modeData.planning.images) {
+      state.modeData.planning.images.splice(index, 1);
+    }
+  } else {
+    if (state.modeData.instant.images) {
+      state.modeData.instant.images.splice(index, 1);
+    }
+  }
+
+  // Sync to legacy currentImages
+  state.currentImages = getCurrentModeImages();
+}
+
+/**
+ * Clear all images for the current mode
+ */
+function clearCurrentModeImages() {
+  const mode = state.currentMode || 'instant';
+
+  if (mode === 'planning') {
+    state.modeData.planning.images = [];
+  } else {
+    state.modeData.instant.images = [];
+  }
+
+  state.currentImages = [];
+}
+
+// ==================== END MODE-SPECIFIC IMAGE MANAGEMENT ====================
+
+/**
+ * Synchronize currentMode from the active session
+ * Called when session is loaded or switched
+ */
+function syncModeFromActiveSession() {
+  const activeSession = state.sessions?.find(s => s.id === state.activeSessionId);
+
+  if (activeSession && activeSession.mode) {
+    state.currentMode = activeSession.mode;
+
+    // Sync images from session planning data if in planning mode
+    if (activeSession.mode === 'planning' && activeSession.planningData) {
+      if (activeSession.planningData.images) {
+        state.modeData.planning.images = activeSession.planningData.images;
+      }
+      if (activeSession.planningData) {
+        state.modeData.planning.draftData = activeSession.planningData;
+      }
+    }
+
+    console.log('[Session] Mode synced from session:', activeSession.mode);
+  } else {
+    // Default to instant mode
+    state.currentMode = 'instant';
+  }
+
+  // Sync legacy currentImages
+  state.currentImages = getCurrentModeImages();
 }
 
 // Sessions page lets the user manage named chat contexts + attachments.
@@ -702,6 +2301,65 @@ function attachChatHandlers() {
   renderAiDisclosure();
   renderQuickActions();
   renderChatMeta();
+  updateVisionBridgeStatus();
+  initializeModelPrepModal();
+  evaluateModelReadiness();
+  renderPhaseBanner();
+  renderPhaseBadge();
+
+  // Planning mode toggle - switch between normal chat and planning
+  const planningToggle = document.getElementById('planning-mode-toggle');
+  if (planningToggle) {
+    // Remove any existing listeners by cloning
+    const newToggle = planningToggle.cloneNode(true);
+    planningToggle.parentNode?.replaceChild(newToggle, planningToggle);
+    
+    newToggle.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      
+      // Show visual feedback
+      newToggle.style.opacity = '0.7';
+      setTimeout(() => {
+        newToggle.style.opacity = '1';
+      }, 200);
+      
+      // Navigate to planning mode
+      if (window.navigateToPage) {
+        window.navigateToPage('planning');
+      } else if (typeof navigateTo === 'function') {
+        navigateTo('planning');
+      }
+    });
+    
+    // Add tooltip/aria label for accessibility
+    newToggle.setAttribute('aria-label', 'Switch to Planning Mode');
+    newToggle.setAttribute('title', 'Switch to Planning Mode - Plan your task before execution');
+  }
+
+  const phaseGateButton = document.getElementById('phase-gate-open-planning');
+  phaseGateButton?.addEventListener('click', (event) => {
+    event.preventDefault();
+    window.navigateToPage('planning');
+  });
+
+  // Mode switch button handler
+  const modeSwitchBtn = document.getElementById('chat-mode-switch-btn');
+  if (modeSwitchBtn) {
+    modeSwitchBtn.addEventListener('click', async () => {
+      const currentMode = state.currentMode || 'instant';
+      const targetMode = currentMode === 'instant' ? 'planning' : 'instant';
+
+      if (typeof switchMode === 'function') {
+        await switchMode(targetMode);
+      } else {
+        console.error('[Chat] switchMode function not available');
+      }
+    });
+  }
+
+  // Update mode indicator
+  updateModeIndicator();
 
   if (modelSelector) {
     modelSelector.addEventListener('change', (event) => {
@@ -711,6 +2369,7 @@ function attachChatHandlers() {
       updateThinkingStatus();
       renderAiDisclosure();
       renderChatMeta();
+      evaluateModelReadiness();
     });
   }
 
@@ -735,9 +2394,15 @@ function attachChatHandlers() {
     const length = text.length;
     const isEmpty = text.trim().length === 0;
     const isSessionSending = state.sessionSendingStates[state.activeSessionId];
+    const requiresPlanning = !isSessionReadyForExecution(state.activeSessionId);
 
     // Enable send button only if has text and not currently sending
-    sendBtn.disabled = isEmpty || isSessionSending;
+    sendBtn.disabled = isEmpty || isSessionSending || requiresPlanning;
+    if (requiresPlanning) {
+      sendBtn.setAttribute('title', 'Complete planning to unlock execution.');
+    } else {
+      sendBtn.removeAttribute('title');
+    }
 
     // Update character counter
     if (charCounter) {
@@ -745,15 +2410,33 @@ function attachChatHandlers() {
       charCounter.style.color = '';
     }
 
-    // Auto-resize textarea to fit content
+    // Auto-resize textarea to fit content with smooth transition
     input.style.height = 'auto';
-    input.style.height = Math.min(input.scrollHeight, 120) + 'px'; // Max 120px
+    const newHeight = Math.min(input.scrollHeight, 200); // Max 200px to match CSS
+    input.style.height = newHeight + 'px';
+    
+    // Update send button aria state
+    if (sendBtn) {
+      sendBtn.setAttribute('aria-disabled', sendBtn.disabled ? 'true' : 'false');
+    }
   }
 
   input.addEventListener('input', updateInputState);
 
   // Initialize on page load
   updateInputState();
+  if (window.__workflowPhaseHandler) {
+    window.removeEventListener('workflow-phase-change', window.__workflowPhaseHandler);
+  }
+  window.__workflowPhaseHandler = (event) => {
+    if (!event.detail || event.detail.sessionId !== state.activeSessionId) {
+      return;
+    }
+    renderPhaseBanner();
+    renderPhaseBadge();
+    updateInputState();
+  };
+  window.addEventListener('workflow-phase-change', window.__workflowPhaseHandler);
 
   // Image upload functionality
   const imageUploadBtn = document.getElementById('image-upload-btn');
@@ -770,35 +2453,84 @@ function attachChatHandlers() {
   // Click upload button to trigger file input
   if (imageUploadBtn && imageUploadInput) {
     imageUploadBtn.addEventListener('click', () => {
+      if (!ensureModelReadyBeforeImages('upload')) {
+        return;
+      }
       imageUploadInput.click();
     });
 
     // Handle file selection
     imageUploadInput.addEventListener('change', async (event) => {
-      const files = Array.from(event.target.files);
+      if (!ensureModelReadyBeforeImages('upload')) {
+        imageUploadInput.value = '';
+        return;
+      }
+      const files = Array.from(event.target.files || []);
 
       for (const file of files) {
-        if (file.type.startsWith('image/')) {
-          // Read file as base64
-          const reader = new FileReader();
-          reader.onload = (e) => {
-            const imageData = {
-              file: file,
-              dataUrl: e.target.result,
-              name: file.name,
-              size: file.size,
-              type: file.type
-            };
-            state.currentImages.push(imageData);
-            renderImagePreviews();
-          };
-          reader.readAsDataURL(file);
+        if (!file.type.startsWith('image/')) {
+          continue;
+        }
+        if (state.currentImages.length >= MAX_CHAT_IMAGES) {
+          showNotification(`Maximum of ${MAX_CHAT_IMAGES} images per message.`, 'warning', 3000);
+          break;
+        }
+        try {
+          const rawDataUrl = await readFileAsDataUrl(file);
+          const optimized = await optimizeImageDataUrl(rawDataUrl, file.type);
+          state.currentImages.push({
+            file,
+            dataUrl: optimized.dataUrl,
+            name: file.name,
+            size: optimized.size || file.size,
+            type: optimized.type || file.type
+          });
+        } catch (error) {
+          console.error('Image upload failed', error);
+          showNotification(`Failed to load ${file.name}`, 'error', 2500);
         }
       }
 
+      renderImagePreviews();
       // Clear input so same file can be selected again
       imageUploadInput.value = '';
     });
+  }
+
+  const screenshotBtn = document.getElementById('screenshot-capture-btn');
+  if (screenshotBtn) {
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      screenshotBtn.disabled = true;
+      screenshotBtn.title = 'Screen capture not supported in this browser.';
+    } else {
+      screenshotBtn.addEventListener('click', async () => {
+        try {
+          if (!ensureModelReadyBeforeImages('screenshot')) {
+            return;
+          }
+          if (state.currentImages.length >= MAX_CHAT_IMAGES) {
+            showNotification(`Maximum of ${MAX_CHAT_IMAGES} images per message.`, 'warning', 3000);
+            return;
+          }
+          screenshotBtn.disabled = true;
+          const capture = await captureScreenshotFrame();
+          const optimized = await optimizeImageDataUrl(capture.dataUrl, capture.type);
+          state.currentImages.push({
+            name: capture.name,
+            dataUrl: optimized.dataUrl,
+            size: optimized.size,
+            type: optimized.type
+          });
+          renderImagePreviews();
+          showNotification('Screenshot captured', 'success', 2000);
+        } catch (error) {
+          console.error('Screenshot capture failed', error);
+          showNotification('Screenshot capture failed. Check browser permissions.', 'error', 3500);
+        } finally {
+          screenshotBtn.disabled = false;
+        }
+      });
+    }
   }
 
   function renderImagePreviews() {
@@ -816,12 +2548,17 @@ function attachChatHandlers() {
       imageCounter.textContent = `${state.currentImages.length} image${state.currentImages.length !== 1 ? 's' : ''}`;
     }
 
-    imagePreviewList.innerHTML = state.currentImages.map((img, index) => `
-      <div class="image-preview-item" data-index="${index}">
-        <img src="${img.dataUrl}" alt="${img.name}" />
-        <button class="image-preview-remove" data-index="${index}" aria-label="Remove image">×</button>
-      </div>
-    `).join('');
+    imagePreviewList.innerHTML = state.currentImages
+      .map((img, index) => {
+        const label = `${escapeHtml(img.name || 'Screenshot')} • ${formatFileSize(img.size || 0)}`;
+        return `
+        <div class="image-preview-item" data-index="${index}" title="${label}">
+          <img src="${img.dataUrl}" alt="${escapeHtml(img.name || 'Screenshot')}" />
+          <button class="image-preview-remove" data-index="${index}" aria-label="Remove image">×</button>
+        </div>
+      `;
+      })
+      .join('');
 
     // Add click handlers for remove buttons
     imagePreviewList.querySelectorAll('.image-preview-remove').forEach(btn => {
@@ -837,6 +2574,13 @@ function attachChatHandlers() {
   function clearImagePreviews() {
     state.currentImages = [];
     renderImagePreviews();
+    if (imagePreviewContainer) {
+      imagePreviewContainer.style.display = 'none';
+    }
+    if (imageCounter) {
+      imageCounter.style.display = 'none';
+      imageCounter.textContent = '0 images';
+    }
   }
 
   clearBtn.addEventListener('click', async () => {
@@ -991,51 +2735,74 @@ function attachChatHandlers() {
     const modelsList = document.getElementById('models-list');
     if (!modelsList) return;
 
+    // Use cached models if available
+    if (state.availableModels && state.availableModels.length > 0) {
+      renderModelsList(modelsList, state.availableModels);
+      return;
+    }
+
     modelsList.innerHTML = '<p class="side-panel-loading">Loading models...</p>';
 
     try {
-      // Fetch available models
-      const response = await fetch(`${getBackendUrl()}/api/chat/models`);
-      if (!response.ok) throw new Error('Failed to fetch models');
-
-      const data = await response.json();
-      const models = data.models || [];
+      // Fetch available models using correct endpoint
+      const data = await fetchJson('/api/models');
+      const models = (data.models || []).map(m => m.name || m);
 
       if (models.length === 0) {
-        modelsList.innerHTML = '<p class="side-panel-empty">No models available.</p>';
+        modelsList.innerHTML = '<p class="side-panel-empty">No models available. Make sure Ollama is running.</p>';
         return;
       }
 
-      const currentModel = state.model || getSettings().model || '';
+      // Cache models in state
+      state.availableModels = models.map(name => ({ name }));
 
-      modelsList.innerHTML = models.map(model => {
-        const isActive = model === currentModel;
-        return `
-          <div class="side-panel-item ${isActive ? 'active' : ''}" data-model="${escapeHtml(model)}">
-            <h4>${escapeHtml(model)}</h4>
-            ${isActive ? '<p style="color: var(--primary); font-weight: 600;">Currently active</p>' : '<p>Click to switch to this model</p>'}
-          </div>
-        `;
-      }).join('');
-
-      // Add click handlers
-      modelsList.querySelectorAll('.side-panel-item').forEach(item => {
-        item.addEventListener('click', () => {
-          const model = item.dataset.model;
-          if (model) {
-            state.model = model;
-            const settings = getSettings();
-            settings.model = model;
-            setSettings(settings);
-            showNotification(`Switched to model: ${model}`, 'success', 2000);
-            renderModelsPanel(); // Re-render to show new active model
-          }
-        });
-      });
+      renderModelsList(modelsList, models);
     } catch (error) {
       console.error('Failed to load models:', error);
-      modelsList.innerHTML = '<p class="side-panel-empty">Failed to load models.</p>';
+      const errorMessage = error.message || 'Failed to load models';
+      const isConnectionError = errorMessage.includes('connect') || errorMessage.includes('fetch') || errorMessage.includes('offline');
+      
+      if (isConnectionError) {
+        modelsList.innerHTML = '<p class="side-panel-empty">Cannot connect to Ollama. Is the service running?</p>';
+      } else if (state.modelLoadError) {
+        modelsList.innerHTML = `<p class="side-panel-empty">${escapeHtml(state.modelLoadError.message || 'Failed to load models')}</p>`;
+      } else {
+        modelsList.innerHTML = '<p class="side-panel-empty">Failed to load models. Check console for details.</p>';
+      }
     }
+  }
+
+  function renderModelsList(container, models) {
+    const currentModel = state.settings?.model || state.model || getSettings()?.model || '';
+
+    container.innerHTML = models.map(model => {
+      const modelName = typeof model === 'string' ? model : (model.name || model);
+      const isActive = modelName === currentModel;
+      return `
+        <div class="side-panel-item ${isActive ? 'active' : ''}" data-model="${escapeHtml(modelName)}">
+          <h4>${escapeHtml(modelName)}</h4>
+          ${isActive ? '<p style="color: var(--primary); font-weight: 600;">Currently active</p>' : '<p>Click to switch to this model</p>'}
+        </div>
+      `;
+    }).join('');
+
+    // Add click handlers
+    container.querySelectorAll('.side-panel-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const model = item.dataset.model;
+        if (model) {
+          state.model = model;
+          if (state.settings) {
+            state.settings.model = model;
+          }
+          const settings = getSettings();
+          settings.model = model;
+          setSettings(settings);
+          showNotification(`Switched to model: ${model}`, 'success', 2000);
+          renderModelsPanel(); // Re-render to show new active model
+        }
+      });
+    });
   }
 
   function renderHistoryPanel() {
@@ -1447,6 +3214,14 @@ function attachChatHandlers() {
       return;
     }
 
+    if (!isSessionReadyForExecution(currentSessionId)) {
+      renderPhaseBanner();
+      renderPhaseBadge();
+      showNotification('Complete planning before sending messages.', 'warning', 3500);
+      errorEl.textContent = 'Planning phase must finish before execution.';
+      return;
+    }
+
     errorEl.textContent = '';
     input.value = '';
     setThinking(true, currentSessionId);
@@ -1536,7 +3311,8 @@ function attachChatHandlers() {
               assistant: data.response,
               thinking: data.thinking,
               model: payload.model,
-              endpoint: payload.apiEndpoint
+              endpoint: payload.apiEndpoint,
+              visionDescriptions: data.visionDescriptions
             })
           : null;
       const synchronizedHistory = synchronizeSessionHistory(
@@ -1548,14 +3324,22 @@ function attachChatHandlers() {
       clearLiveEntries();
       renderChatMessages();
       renderHistoryPage();
+      if (Array.isArray(data.visionDescriptions) && data.visionDescriptions.length) {
+        showNotification('Vision context attached from screenshots.', 'info', 2500);
+      }
+      if (data.visionBridgeError) {
+        showNotification(data.visionBridgeError, 'warning', 3500);
+      }
       clearImagePreviews(); // Clear images after successful send
       if (thinkingStreamFailed) {
         clearThinkingStatusError();
       }
+      clearPersistentError('chat-send');
     } catch (error) {
       console.error('Error sending message:', error);
       const errorMessage = error.message || 'Failed to send message';
       errorEl.textContent = errorMessage;
+      registerPersistentError('chat-send', error);
 
       // Update UI elements to reflect the error
       if (liveThinking) {
@@ -1651,7 +3435,8 @@ function attachChatHandlers() {
                   assistant: responseText,
                   thinking: thinkingText,
                   model: payload.model,
-                  endpoint: payload.apiEndpoint
+                  endpoint: payload.apiEndpoint,
+                  visionDescriptions: chunk.visionDescriptions
                 })
               : null;
 
@@ -1664,7 +3449,14 @@ function attachChatHandlers() {
           clearLiveEntries();
           renderChatMessages();
           renderHistoryPage();
+          if (Array.isArray(chunk.visionDescriptions) && chunk.visionDescriptions.length) {
+            showNotification('Vision context attached from screenshots.', 'info', 2500);
+          }
+          if (chunk.visionBridgeError) {
+            showNotification(chunk.visionBridgeError, 'warning', 3500);
+          }
           clearImagePreviews(); // Clear images after successful send
+          clearPersistentError('chat-send');
           return true;
         }
       } catch (error) {
@@ -1764,7 +3556,7 @@ function renderSessionSelector() {
 function renderModelSelector() {
   const select = document.getElementById('model-selector');
   if (!select) return;
-  
+
   select.innerHTML = '';
   select.disabled = !state.availableModels.length;
   if (!state.availableModels.length) {
@@ -1788,6 +3580,236 @@ function renderModelSelector() {
   });
 
   renderChatPageModelSelector();
+  loadAndRenderSuggestedModels();
+  renderModelPrepInstalledList();
+}
+
+async function loadAndRenderSuggestedModels() {
+  try {
+    const sessionsArray = Array.isArray(state.sessions) ? state.sessions : [];
+    const activeSession = sessionsArray.find(s => s.id === state.activeSessionId);
+    const presetId = activeSession?.presetId || 'ai-coder-prompt';
+
+    const data = await fetchJson(`/api/models/suggested?presetId=${encodeURIComponent(presetId)}`);
+    state.suggestedModels = data.suggestions || [];
+    renderSuggestedModels();
+  } catch (error) {
+    console.error('Failed to load suggested models:', error);
+    state.suggestedModels = [];
+  }
+}
+
+function renderSuggestedModels() {
+  const suggestions = Array.isArray(state.suggestedModels) ? state.suggestedModels : [];
+  const legacyContainer = document.getElementById('suggested-models-container');
+  const legacyList = document.getElementById('suggested-models-list');
+  const modernHost = document.getElementById('model-selector-container');
+  const existingModernSection = document.getElementById('suggested-models-section');
+  if (existingModernSection) {
+    existingModernSection.remove();
+  }
+
+  if (legacyContainer && legacyList) {
+    if (!suggestions.length) {
+      legacyContainer.style.display = 'none';
+    } else {
+      legacyContainer.style.display = 'block';
+      legacyList.innerHTML = '';
+      suggestions.forEach((suggestion) => {
+        const item = document.createElement('div');
+        item.style.cssText = `
+          padding: 0.75rem;
+          background: var(--bg-primary);
+          border-radius: 0.375rem;
+          border-left: 3px solid var(--accent);
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 0.75rem;
+        `;
+        const infoDiv = document.createElement('div');
+        infoDiv.style.flex = '1';
+        infoDiv.innerHTML = `
+          <div style="font-weight: 500; font-size: 0.95rem;">${suggestion.name}</div>
+          <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.25rem;">${suggestion.reason}</div>
+        `;
+        const addButton = document.createElement('button');
+        addButton.className = 'ghost-btn';
+        addButton.textContent = 'Add';
+        addButton.style.whiteSpace = 'nowrap';
+        addButton.style.padding = '0.5rem 0.75rem';
+        addButton.style.fontSize = '0.85rem';
+        addButton.disabled = false;
+        addButton.addEventListener('click', () => handleSuggestedModelInstallLegacy(suggestion.name, addButton));
+        item.appendChild(infoDiv);
+        item.appendChild(addButton);
+        legacyList.appendChild(item);
+      });
+    }
+  }
+
+  if (modernHost && suggestions.length) {
+    const section = document.createElement('div');
+    section.id = 'suggested-models-section';
+    section.className = 'suggested-models-section';
+    section.innerHTML = `
+      <div class="suggested-models-header">
+        <span class="suggested-models-icon">✨</span>
+        <span class="suggested-models-title">Suggested Models for This Preset</span>
+      </div>
+      <div class="suggested-models-list"></div>
+    `;
+    const listEl = section.querySelector('.suggested-models-list');
+    suggestions.forEach((suggestion) => {
+      const isInstalled = state.availableModels.some((model) => model.name === suggestion.name);
+      const tags = suggestion.tags || suggestion.capabilities || [];
+      const description = suggestion.description || suggestion.reason || 'Recommended for this workflow.';
+      const sizeLabel = suggestion.size || '';
+      const card = document.createElement('div');
+      card.className = `suggested-model-card ${isInstalled ? 'installed' : ''}`;
+      card.innerHTML = `
+        <div class="suggested-model-info">
+          <div class="suggested-model-name">${suggestion.name}</div>
+          <div class="suggested-model-description">${description}</div>
+          <div class="suggested-model-size">${sizeLabel}</div>
+          <div class="suggested-model-tags">
+            ${tags.map((tag) => `<span class="model-tag">${tag}</span>`).join('')}
+          </div>
+        </div>
+        <div class="suggested-model-action"></div>
+      `;
+      const actionArea = card.querySelector('.suggested-model-action');
+      if (isInstalled) {
+        const installedBtn = document.createElement('button');
+        installedBtn.className = 'btn-installed';
+        installedBtn.textContent = '✓ Installed';
+        installedBtn.disabled = true;
+        actionArea.appendChild(installedBtn);
+      } else {
+        const addBtn = document.createElement('button');
+        addBtn.className = 'btn-add-model';
+        addBtn.innerHTML = '<span class="btn-icon">⬇</span> Add model';
+        addBtn.addEventListener('click', async () => {
+          addBtn.disabled = true;
+          addBtn.innerHTML = '<span class="spinner"></span> Pulling...';
+          const success = await pullModelAndInstall(suggestion.name, addBtn);
+          if (success) {
+            state.settings = state.settings || {};
+            state.settings.model = suggestion.name;
+            persistClientSettings();
+            renderModelSelector();
+            renderChatPageModelSelector();
+            renderAiDisclosure();
+            renderChatMeta();
+            updateThinkingStatus();
+            addBtn.classList.add('btn-success');
+            addBtn.textContent = '✓ Added';
+            evaluateModelReadiness();
+            markModelReady('install');
+          } else {
+            addBtn.disabled = false;
+            addBtn.innerHTML = '<span class="btn-icon">⬇</span> Add model';
+          }
+        });
+        actionArea.appendChild(addBtn);
+      }
+      listEl.appendChild(card);
+    });
+    modernHost.appendChild(section);
+  }
+}
+
+function handleSuggestedModelInstallLegacy(modelName, buttonEl) {
+  buttonEl.disabled = true;
+  buttonEl.textContent = 'Installing...';
+  pullModelAndInstall(modelName, buttonEl).then((success) => {
+    if (success) {
+      state.settings = state.settings || {};
+      state.settings.model = modelName;
+      persistClientSettings();
+      renderModelSelector();
+      renderChatPageModelSelector();
+      renderAiDisclosure();
+      renderChatMeta();
+      updateThinkingStatus();
+      evaluateModelReadiness();
+      markModelReady('install');
+    } else {
+      buttonEl.disabled = false;
+      buttonEl.textContent = 'Add';
+    }
+  });
+}
+
+async function pullModelAndInstall(modelName, buttonElement) {
+  try {
+    const response = await fetch(buildUrl('/api/models/pull'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: modelName })
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to pull model');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let pullInProgress = true;
+    let completed = false;
+
+    while (pullInProgress) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value);
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const json = JSON.parse(line.slice(6));
+          if (json.status === 'complete') {
+            pullInProgress = false;
+            completed = true;
+            await loadAvailableModels();
+            renderModelPrepModalSections();
+            if (buttonElement) {
+              buttonElement.textContent = 'Installed ✓';
+              buttonElement.style.color = 'var(--success, #10b981)';
+            }
+            setTimeout(() => {
+              renderSuggestedModels();
+            }, 1000);
+          } else if (json.error) {
+            throw new Error(json.error);
+          } else if (json.status) {
+            if (buttonElement) {
+              buttonElement.textContent = `${json.status.split(' ')[0]}...`;
+            }
+          }
+        } catch (e) {
+          // Skip invalid JSON
+        }
+      }
+    }
+    return completed;
+  } catch (error) {
+    console.error('Model pull error:', error);
+    if (buttonElement) {
+      buttonElement.textContent = 'Error';
+      buttonElement.style.color = 'var(--danger, #ef4444)';
+      setTimeout(() => {
+        buttonElement.textContent = 'Add';
+        buttonElement.style.color = '';
+        buttonElement.disabled = false;
+      }, 2000);
+    }
+    return false;
+  }
 }
 
 function resolveModelForRequest() {
@@ -1837,6 +3859,7 @@ function renderChatPageModelSelector() {
     }
     updateThinkingStatus();
     renderChatMeta();
+    evaluateModelReadiness();
   };
 }
 
@@ -1854,6 +3877,8 @@ async function applyPresetToActiveSession(presetId) {
     await loadServerHistory(state.activeSessionId);
     updateSessionInstructionsPreview();
     renderSessionSelector();
+    // Refresh suggested models when preset changes
+    await loadAndRenderSuggestedModels();
   } catch (error) {
     console.error('Failed to apply preset from chat controls', error);
   }
@@ -1909,6 +3934,7 @@ async function setActiveSession(sessionId, options = {}) {
   state.activeSessionId = sessionId;
   state.historySessionId = sessionId;
   persistActiveSession();
+  ensureWorkflowEntry(sessionId);
 
   try {
     await fetchJson(`/api/sessions/${encodeURIComponent(sessionId)}/select`, {
@@ -1929,6 +3955,12 @@ async function setActiveSession(sessionId, options = {}) {
   notifySettingsSubscribers();
   renderAiDisclosure();
   renderChatMeta();
+  renderPhaseBanner();
+  renderPhaseBadge();
+  if (state.currentPage === 'planning') {
+    planningHandlersAttached = false;
+    attachPlanningHandlers();
+  }
 
   if (options.focusChat) {
     state.currentPage = 'chat';
@@ -2253,6 +4285,9 @@ async function createNewChat() {
     if (response.session) {
       await loadSessions();
       state.activeSessionId = response.session.id;
+      markSessionRequiresPlanning(response.session.id);
+      renderPhaseBanner();
+      renderPhaseBadge();
       persistActiveSession();
       state.chat = [];
       state.sessionHistories[response.session.id] = [];
@@ -2680,6 +4715,20 @@ function renderChatMessages() {
       conversation.appendChild(assistantBubble);
     }
 
+    if (Array.isArray(entry.visionDescriptions) && entry.visionDescriptions.length) {
+      const visionBlock = document.createElement('div');
+      visionBlock.className = 'vision-context-block';
+      const items = entry.visionDescriptions
+        .map((vision, idx) => {
+          const title = escapeHtml(vision?.name || `Screenshot ${idx + 1}`);
+          const text = escapeHtml(vision?.description || '').replace(/\n/g, '<br>');
+          return `<div class="vision-context-item"><strong>${title}</strong>${text}</div>`;
+        })
+        .join('');
+      visionBlock.innerHTML = `<h5>Vision context</h5>${items}`;
+      conversation.appendChild(visionBlock);
+    }
+
     container.appendChild(conversation);
   });
 
@@ -2741,6 +4790,52 @@ function toggleEmptyHero(show) {
   hero.setAttribute('aria-hidden', show ? 'false' : 'true');
 }
 
+/**
+ * Update mode indicator in chat header
+ */
+function updateModeIndicator() {
+  const modePill = document.getElementById('meta-mode-pill');
+  const modeLabelText = document.getElementById('mode-label-text');
+  const switchModeBtn = document.getElementById('chat-mode-switch-btn');
+  const switchModeLabel = document.getElementById('switch-mode-label');
+  const instantIcon = document.querySelector('.mode-icon-instant');
+  const planningIcon = document.querySelector('.mode-icon-planning');
+
+  const currentMode = state.currentMode || 'instant';
+
+  // Update pill
+  if (modePill) {
+    if (currentMode === 'planning') {
+      modePill.classList.add('planning-mode');
+      modePill.classList.remove('instant-mode');
+    } else {
+      modePill.classList.add('instant-mode');
+      modePill.classList.remove('planning-mode');
+    }
+  }
+
+  // Update label
+  if (modeLabelText) {
+    modeLabelText.textContent = currentMode === 'instant' ? 'Instant Mode' : 'Planning Mode';
+  }
+
+  // Update icons
+  if (instantIcon && planningIcon) {
+    if (currentMode === 'instant') {
+      instantIcon.style.display = 'block';
+      planningIcon.style.display = 'none';
+    } else {
+      instantIcon.style.display = 'none';
+      planningIcon.style.display = 'block';
+    }
+  }
+
+  // Update switch button
+  if (switchModeLabel) {
+    switchModeLabel.textContent = currentMode === 'instant' ? 'Switch to Planning' : 'Switch to Instant';
+  }
+}
+
 function renderChatMeta() {
   const sessionTitle = document.getElementById('chat-meta-session');
   const sessionSubtitle = document.getElementById('chat-meta-subtitle');
@@ -2789,6 +4884,46 @@ function renderChatMeta() {
 
   renderChatPageModelSelector();
   renderChatPagePresetSelector();
+  renderPhaseBadge();
+}
+
+function renderPhaseBadge() {
+  const pill = document.getElementById('meta-phase-pill');
+  if (!pill) return;
+  const textEl = pill.querySelector('span');
+  const entry = getWorkflowEntry(state.activeSessionId);
+  const phase = entry?.phase || WORKFLOW_PHASES.EXECUTION;
+  pill.dataset.phase = phase;
+  if (textEl) {
+    textEl.textContent = phase === WORKFLOW_PHASES.PLANNING ? 'Phase: Planning' : 'Phase: Execution';
+  }
+}
+
+function renderPhaseBanner() {
+  const banner = document.getElementById('phase-gate-banner');
+  if (!banner) return;
+  const requiresPlanning = !isSessionReadyForExecution(state.activeSessionId);
+  if (!requiresPlanning) {
+    banner.hidden = true;
+    banner.style.display = 'none';
+    return;
+  }
+  banner.hidden = false;
+  banner.style.display = 'flex';
+  const entry = getWorkflowEntry(state.activeSessionId);
+  const label = banner.querySelector('.phase-gate-label');
+  const text = banner.querySelector('.phase-gate-text');
+  if (label) {
+    label.textContent = 'Planning required';
+  }
+  if (text) {
+    if (entry?.summary?.objective) {
+      text.textContent = `Objective: ${entry.summary.objective}`;
+    } else {
+      text.textContent =
+        'Finish the planning checklist and tap Done to unlock execution for this session.';
+    }
+  }
 }
 
 function renderQuickActions() {
@@ -2822,6 +4957,216 @@ function renderQuickActions() {
     });
     container.appendChild(button);
   });
+}
+
+function initializeModelPrepModal() {
+  const modal = document.getElementById('model-prep-modal');
+  if (!modal) return;
+  const closeBtn = document.getElementById('model-prep-close');
+  closeBtn?.addEventListener('click', () => closeModelPrepModal());
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal) {
+      closeModelPrepModal();
+    }
+  });
+  const dismissBtn = document.getElementById('model-prep-dismiss');
+  dismissBtn?.addEventListener('click', () => closeModelPrepModal());
+  renderModelPrepModalSections();
+}
+
+function openModelPrepModal(reason = 'upload') {
+  const modal = document.getElementById('model-prep-modal');
+  if (!modal) return;
+  state.modelPrepModalOpen = true;
+  state.modelPrepLastReason = reason;
+  const reasonEl = document.getElementById('model-prep-reason');
+  const copy =
+    reason === 'screenshot'
+      ? 'Screenshots require an active model. Pick one below to continue.'
+      : 'Select or install a model before attaching screenshots.';
+  if (reasonEl) {
+    reasonEl.textContent = copy;
+  }
+  modal.style.display = 'flex';
+  document.body.classList.add('modal-open');
+  renderModelPrepModalSections();
+}
+
+function closeModelPrepModal(options = {}) {
+  const modal = document.getElementById('model-prep-modal');
+  if (!modal) return;
+  modal.style.display = 'none';
+  document.body.classList.remove('modal-open');
+  state.modelPrepModalOpen = false;
+  if (!options.silent && !state.modelPrepAcknowledged) {
+    showNotification('Select a model to unlock image uploads.', 'warning', 2500);
+  }
+}
+
+function renderModelPrepModalSections() {
+  if (!document.getElementById('model-prep-modal')) {
+    return;
+  }
+  renderModelPrepInstalledList();
+  renderModelPrepSuggestedList();
+  renderModelPrepWebList();
+}
+
+function renderModelPrepInstalledList() {
+  const list = document.getElementById('model-prep-installed-list');
+  if (!list) return;
+  list.innerHTML = '';
+  if (!state.availableModels.length) {
+    list.innerHTML = '<p class="model-prep-empty">No installed models detected yet.</p>';
+    return;
+  }
+  state.availableModels.forEach((model) => {
+    const card = document.createElement('div');
+    card.className = 'model-card';
+    const sizeGb = (model.size / (1024 * 1024 * 1024)).toFixed(1);
+    const isActive = model.name === state.settings?.model;
+    card.innerHTML = `
+      <div class="model-card-body">
+        <div class="model-card-title">${model.name}</div>
+        <div class="model-card-subtitle">${sizeGb} GB download</div>
+      </div>
+    `;
+    const button = document.createElement('button');
+    button.className = 'model-card-btn';
+    button.textContent = isActive ? 'Selected' : 'Use model';
+    button.disabled = isActive;
+    button.addEventListener('click', () => handleInstalledModelSelection(model.name));
+    card.appendChild(button);
+    list.appendChild(card);
+  });
+}
+
+function renderModelPrepSuggestedList() {
+  const container = document.getElementById('model-prep-suggested-list');
+  if (!container) return;
+  container.innerHTML = '';
+  MODEL_ACQUISITION_GROUPS.forEach((group) => {
+    const section = document.createElement('div');
+    section.className = 'model-prep-group';
+    section.innerHTML = `
+      <div class="model-prep-group-header">
+        <div>
+          <h4>${group.label}</h4>
+          <p>${group.description}</p>
+        </div>
+      </div>
+    `;
+    const grid = document.createElement('div');
+    grid.className = 'model-card-grid';
+    group.models.forEach((model) => {
+      const card = document.createElement('div');
+      card.className = 'model-card';
+      card.innerHTML = `
+        <div class="model-card-body">
+          <div class="model-card-title">${model.name}</div>
+          <div class="model-card-meta">${model.download}</div>
+          <ul class="model-card-requirements">
+            <li>${model.ram}</li>
+            <li>${model.vram}</li>
+          </ul>
+          <p class="model-card-notes">${model.notes}</p>
+        </div>
+      `;
+      const button = document.createElement('button');
+      button.className = 'model-card-btn';
+      button.textContent = 'Install';
+      button.addEventListener('click', () => handleSuggestedModelInstall(model, button));
+      card.appendChild(button);
+      grid.appendChild(card);
+    });
+    section.appendChild(grid);
+    container.appendChild(section);
+  });
+}
+
+function renderModelPrepWebList() {
+  const list = document.getElementById('model-prep-web-list');
+  if (!list) return;
+  list.innerHTML = '';
+  WEB_MODEL_OPTIONS.forEach((option) => {
+    const card = document.createElement('div');
+    card.className = 'model-card model-card-web';
+    card.innerHTML = `
+      <div class="model-card-body">
+        <div class="model-card-title">${option.label}</div>
+        <div class="model-card-meta">${option.notes}</div>
+        <p class="model-card-notes">${option.instructions}</p>
+      </div>
+    `;
+    const button = document.createElement('button');
+    button.className = 'model-card-btn';
+    button.textContent = 'Use cloud model';
+    button.addEventListener('click', () => handleWebModelSelection(option));
+    card.appendChild(button);
+    list.appendChild(card);
+  });
+}
+
+function handleInstalledModelSelection(modelName) {
+  state.settings = state.settings || {};
+  state.settings.model = modelName;
+  persistClientSettings();
+  if (elements.activeModel) {
+    elements.activeModel.textContent = `model: ${state.settings.model || '--'}`;
+  }
+  renderModelSelector();
+  renderChatPageModelSelector();
+  renderAiDisclosure();
+  renderChatMeta();
+  updateThinkingStatus();
+  if (evaluateModelReadiness()) {
+    markModelReady('installed-select');
+  }
+  showNotification(`Using ${modelName} for uploads.`, 'success', 2200);
+}
+
+async function handleSuggestedModelInstall(modelInfo, buttonElement) {
+  if (buttonElement.disabled) {
+    return;
+  }
+  buttonElement.disabled = true;
+  buttonElement.textContent = 'Installing...';
+  const success = await pullModelAndInstall(modelInfo.name, buttonElement);
+  if (!success) {
+    buttonElement.disabled = false;
+    buttonElement.textContent = 'Install';
+    return;
+  }
+  state.settings = state.settings || {};
+  state.settings.model = modelInfo.name;
+  persistClientSettings();
+  renderModelSelector();
+  renderChatPageModelSelector();
+  renderAiDisclosure();
+  renderChatMeta();
+  updateThinkingStatus();
+  evaluateModelReadiness();
+  markModelReady('install');
+}
+
+function handleWebModelSelection(option) {
+  state.settings = state.settings || {};
+  state.settings.ollamaMode = 'cloud';
+  state.settings.apiEndpoint = option.endpoint || 'https://ollama.com/';
+  state.settings.model = option.model;
+  persistClientSettings();
+  notifySettingsSubscribers();
+  renderModelSelector();
+  renderChatPageModelSelector();
+  renderAiDisclosure();
+  renderChatMeta();
+  updateThinkingStatus();
+  if (option.url) {
+    window.open(option.url, '_blank', 'noopener');
+  }
+  evaluateModelReadiness();
+  markModelReady('web');
+  showNotification(`Cloud model ${option.label} selected. Configure your Ollama key to finish setup.`, 'info', 3500);
 }
 
 function getActivePresetLabel() {
@@ -2864,6 +5209,43 @@ function renderAiDisclosure() {
       toggleBtn.textContent = instructionsPreview.hidden ? 'View instructions' : 'Hide instructions';
     };
   }
+}
+
+function renderVisionProviderDetails() {
+  const details = document.getElementById('vision-provider-status-details');
+  if (!details || !state.settings) return;
+  const provider = (state.settings.visionProvider || 'auto').toLowerCase();
+  const mode = (state.settings.visionBridgeMode || 'auto').toLowerCase();
+  if (provider === 'off' || mode === 'off') {
+    details.textContent = 'Vision bridge is disabled. Screenshots are sent only to models with native visual support.';
+    return;
+  }
+  const providerLabel = provider === 'auto' ? 'the best available provider' : provider;
+  let modeCopy = '';
+  switch (mode) {
+    case 'force':
+      modeCopy = 'always summarize screenshots before sending them to the model';
+      break;
+    case 'hybrid':
+      modeCopy = 'send both the raw screenshots and their summaries';
+      break;
+    default:
+      modeCopy = 'summarize screenshots when a text-only model is active';
+  }
+  details.textContent = `Vision bridge will use ${providerLabel} and ${modeCopy}.`;
+}
+
+function updateVisionBridgeStatus() {
+  const pill = document.getElementById('vision-bridge-status');
+  if (!pill) return;
+  const provider = (state.settings?.visionProvider || 'auto').toLowerCase();
+  const mode = (state.settings?.visionBridgeMode || 'auto').toLowerCase();
+  if (provider === 'off' || mode === 'off') {
+    pill.style.display = 'none';
+    return;
+  }
+  pill.style.display = 'inline-flex';
+  pill.textContent = `vision ${provider} • ${mode}`;
 }
 
 function escapeHtml(value = '') {
@@ -3015,7 +5397,7 @@ function generateLocalEntryId(prefix = 'local-entry') {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function createLocalHistoryEntry({ sessionId, user, assistant, thinking, model, endpoint }) {
+function createLocalHistoryEntry({ sessionId, user, assistant, thinking, model, endpoint, visionDescriptions }) {
   const cleanedThinking = shouldDiscardClientThinking(thinking) ? '' : (thinking || '').trim();
   return {
     id: generateLocalEntryId('history'),
@@ -3025,7 +5407,8 @@ function createLocalHistoryEntry({ sessionId, user, assistant, thinking, model, 
     assistant: assistant || '',
     thinking: cleanedThinking,
     model: model || state.settings?.model || 'local',
-    endpoint: endpoint || state.settings?.apiEndpoint || window.location.origin
+    endpoint: endpoint || state.settings?.apiEndpoint || window.location.origin,
+    visionDescriptions: Array.isArray(visionDescriptions) && visionDescriptions.length ? visionDescriptions : undefined
   };
 }
 
@@ -3197,6 +5580,178 @@ function finalizeThinkingEntry(entry, thinkingText, responseText) {
   entry.remove();
 }
 
+// Track if planning handlers are attached to prevent duplicates
+let planningHandlersAttached = false;
+
+function attachPlanningHandlers() {
+  // Prevent duplicate bindings
+  if (planningHandlersAttached) {
+    console.log('[Planning] Handlers already attached, skipping');
+    return;
+  }
+
+  // Check if PlanningMode is available
+  if (typeof window.PlanningMode === 'undefined') {
+    console.warn('[Planning] PlanningMode not available yet');
+    return;
+  }
+
+  // Wire up event handlers for planning mode
+  const planningInput = document.getElementById('planning-input');
+  const planningSendBtn = refreshPlanningControl('planning-send-btn');
+  const planningSkipBtn = refreshPlanningControl('planning-skip-btn');
+  const planningCreateBtn = refreshPlanningControl('planning-create-btn');
+  const copyPromptBtn = refreshPlanningControl('copy-prompt-btn');
+  const sendToChatBtn = refreshPlanningControl('send-to-chat-btn');
+  const startNewPlanningBtn = refreshPlanningControl('start-new-planning-btn');
+  const doneBtn = refreshPlanningControl('planning-done-btn');
+
+  // Helper to create handler with guard
+  const createHandler = (handlerFn) => {
+    return async (e) => {
+      e?.preventDefault?.();
+      if (window.PlanningMode && typeof handlerFn === 'function') {
+        await handlerFn.call(window.PlanningMode);
+      }
+    };
+  };
+
+  // Send answer handler
+  planningSendBtn?.addEventListener('click', createHandler(window.PlanningMode.handleAnswer));
+
+  // Skip question handler
+  planningSkipBtn?.addEventListener('click', createHandler(window.PlanningMode.handleSkip));
+
+  // Enter key in textarea (Cmd/Ctrl+Enter)
+  if (planningInput) {
+    planningInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        if (window.PlanningMode?.handleAnswer) {
+          window.PlanningMode.handleAnswer();
+        }
+      }
+    });
+  }
+
+  // Create prompt handler
+  planningCreateBtn?.addEventListener('click', createHandler(window.PlanningMode.handleCreate));
+
+  // Copy prompt handler
+  copyPromptBtn?.addEventListener('click', createHandler(window.PlanningMode.copyPrompt));
+
+  // Send to chat handler
+  sendToChatBtn?.addEventListener('click', createHandler(window.PlanningMode.sendToChat));
+
+  // Start new planning handler
+  startNewPlanningBtn?.addEventListener('click', createHandler(window.PlanningMode.startNew));
+
+  // Done handler - completes planning and transitions to execution/chat
+  if (doneBtn && window.PlanningMode.handleDone) {
+    doneBtn.addEventListener('click', async (e) => {
+      e?.preventDefault?.();
+      if (!window.PlanningMode || typeof window.PlanningMode.handleDone !== 'function') {
+        console.warn('[Planning] handleDone not available');
+        return;
+      }
+      
+      try {
+        // Disable button during processing
+        if (doneBtn) {
+          doneBtn.disabled = true;
+          const originalText = doneBtn.textContent;
+          doneBtn.textContent = 'Processing...';
+        }
+        
+        await window.PlanningMode.handleDone();
+        
+        // Show success message
+        if (typeof showNotification === 'function') {
+          showNotification('Planning complete! Switching to execution...', 'success', 3000);
+        }
+        
+        // Transition to chat after a brief delay
+        setTimeout(() => {
+          if (window.navigateToPage) {
+            window.navigateToPage('chat');
+          }
+        }, 500);
+      } catch (error) {
+        console.error('[Planning] Failed to complete planning:', error);
+        if (doneBtn) {
+          doneBtn.disabled = false;
+        }
+        if (typeof showNotification === 'function') {
+          showNotification(error?.message || 'Failed to complete planning', 'error', 5000);
+        } else {
+          alert(error?.message || 'Failed to complete planning');
+        }
+      }
+    });
+  }
+
+  // Mark as attached
+  planningHandlersAttached = true;
+
+  // Initialize planning mode
+  if (window.PlanningMode.initialize) {
+    window.PlanningMode.initialize(buildPlanningMountConfig());
+  }
+}
+
+function refreshPlanningControl(id) {
+  const node = document.getElementById(id);
+  if (!node) return null;
+  const clone = node.cloneNode(true);
+  node.parentNode.replaceChild(clone, node);
+  return clone;
+}
+
+// Reset flag when page changes
+window.addEventListener('pagechange', (event) => {
+  if (event.detail && event.detail.page !== 'planning') {
+    planningHandlersAttached = false;
+  }
+});
+
+function showSettingsFeedback(messages, type = 'error') {
+  const box = document.getElementById('settings-feedback');
+  if (!box) return;
+  const contentArray = Array.isArray(messages) ? messages : [messages];
+  box.className = `settings-feedback visible ${type}`;
+  box.innerHTML = `<ul>${contentArray.map((msg) => `<li>${msg}</li>`).join('')}</ul>`;
+}
+
+function clearSettingsFeedback() {
+  const box = document.getElementById('settings-feedback');
+  if (!box) return;
+  box.className = 'settings-feedback';
+  box.textContent = '';
+}
+
+function collectSettingsErrors(payload) {
+  const errors = [];
+  if (!payload.model || !payload.model.trim()) {
+    errors.push('Model name is required.');
+  }
+  if (!payload.apiEndpoint || !payload.apiEndpoint.trim()) {
+    errors.push('Ollama endpoint is required.');
+  } else {
+    try {
+      new URL(payload.apiEndpoint);
+    } catch (_) {
+      errors.push('Provide a valid Ollama endpoint (e.g., http://127.0.0.1:11434).');
+    }
+  }
+  if (payload.maxHistory !== undefined) {
+    const maxHistory = Number(payload.maxHistory);
+    if (Number.isNaN(maxHistory) || maxHistory <= 0 || maxHistory > 1000) {
+      errors.push('Messages per prompt must be between 1 and 1000.');
+    }
+  }
+  return errors;
+}
+
 function attachSettingsHandlers() {
   const form = document.getElementById('settings-form');
   const customPageForm = document.getElementById('custom-page-form');
@@ -3249,11 +5804,20 @@ function attachSettingsHandlers() {
     const payload = Object.fromEntries(formData.entries());
 
     payload.maxHistory = Number(payload.maxHistory);
+    payload.model = (payload.model || '').trim();
+    payload.apiEndpoint = (payload.apiEndpoint || '').trim();
 
     payload.backendBaseUrl =
       payload.backendBaseUrl && payload.backendBaseUrl.trim()
         ? normalizeBaseUrl(payload.backendBaseUrl)
         : state.settings?.backendBaseUrl || FALLBACK_BASE_URL;
+
+    clearSettingsFeedback();
+    const validationErrors = collectSettingsErrors(payload);
+    if (validationErrors.length) {
+      showSettingsFeedback(validationErrors, 'error');
+      return;
+    }
 
     try {
       const data = await fetchJson('/api/settings', {
@@ -3268,11 +5832,16 @@ function attachSettingsHandlers() {
       applyTheme(state.settings.theme);
       persistClientSettings();
       notifySettingsSubscribers();
+      renderVisionProviderDetails();
+      updateVisionBridgeStatus();
       elements.activeModel.textContent = `model: ${state.settings.model}`;
       await loadAvailableModels();
       renderModelSelector();
+      showSettingsFeedback(['Settings saved and applied.'], 'success');
+      await ensureValidModelSelection('settings-save');
     } catch (error) {
       console.error('Failed to save settings', error);
+      showSettingsFeedback([error?.message || 'Failed to save settings.'], 'error');
     }
   });
 
@@ -3358,6 +5927,24 @@ function populateSettingsForm(form) {
   }
   if (form.elements.ollamaApiKey && state.settings.ollamaApiKey) {
     form.elements.ollamaApiKey.value = state.settings.ollamaApiKey;
+  }
+  if (form.elements.visionProvider) {
+    form.elements.visionProvider.value = state.settings.visionProvider || 'auto';
+  }
+  if (form.elements.visionBridgeMode) {
+    form.elements.visionBridgeMode.value = state.settings.visionBridgeMode || 'auto';
+  }
+  if (form.elements.visionMaxDescriptionChars) {
+    form.elements.visionMaxDescriptionChars.value = state.settings.visionMaxDescriptionChars || 1200;
+  }
+  if (form.elements.visionDescriptionPrompt) {
+    form.elements.visionDescriptionPrompt.value = state.settings.visionDescriptionPrompt || '';
+  }
+  if (form.elements.visionNativeModels) {
+    const nativeList = Array.isArray(state.settings.visionNativeModels)
+      ? state.settings.visionNativeModels.join(', ')
+      : state.settings.visionNativeModels || '';
+    form.elements.visionNativeModels.value = nativeList;
   }
 }
 
@@ -3719,6 +6306,18 @@ function formatDate(value) {
   }
 }
 
+function formatFileSize(bytes) {
+  if (!bytes && bytes !== 0) return '--';
+  const units = ['B', 'KB', 'MB'];
+  let size = bytes;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
 function populateSessionOptions(select, selectedId) {
   if (!select) return;
   const sessions = state.sessions.length
@@ -3776,6 +6375,15 @@ function readFileAsText(file) {
     reader.onload = () => resolve(reader.result);
     reader.onerror = reject;
     reader.readAsText(file);
+  });
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
   });
 }
 
@@ -4418,6 +7026,14 @@ function loadActiveSessionPreference() {
   }
 }
 
+function saveActiveSessionPreference(sessionId) {
+  try {
+    localStorage.setItem('ollama-active-session', sessionId);
+  } catch (_) {
+    // ignore
+  }
+}
+
 function persistThinkingPreference(value) {
   try {
     localStorage.setItem(THINKING_PREF_KEY, JSON.stringify(Boolean(value)));
@@ -4436,6 +7052,167 @@ function loadThinkingPreference() {
   } catch (_) {
     return true;
   }
+}
+
+function getWorkflowEntry(sessionId) {
+  if (!sessionId || !state.workflowPhases) {
+    return null;
+  }
+  return state.workflowPhases[sessionId] || null;
+}
+
+function ensureWorkflowEntry(sessionId, options = {}) {
+  if (!sessionId) {
+    return null;
+  }
+  if (!state.workflowPhases[sessionId]) {
+    state.workflowPhases[sessionId] = {
+      phase: options.phase || WORKFLOW_PHASES.EXECUTION,
+      answers: {},
+      conversation: [],
+      prompt: '',
+      summary: null,
+      updatedAt: new Date().toISOString(),
+      completedAt: null
+    };
+  }
+  return state.workflowPhases[sessionId];
+}
+
+function markSessionRequiresPlanning(sessionId) {
+  if (!sessionId) return;
+  const entry = ensureWorkflowEntry(sessionId, { phase: WORKFLOW_PHASES.PLANNING });
+  entry.phase = WORKFLOW_PHASES.PLANNING;
+  entry.answers = {};
+  entry.conversation = [];
+  entry.prompt = '';
+  entry.summary = null;
+  entry.updatedAt = new Date().toISOString();
+  entry.completedAt = null;
+  persistWorkflowPhases();
+  window.appState = state;
+  emitWorkflowPhaseChange(sessionId);
+}
+
+function syncWorkflowStateWithSessions() {
+  const validIds = new Set(state.sessions.map((session) => session.id));
+  Object.keys(state.workflowPhases || {}).forEach((sessionId) => {
+    if (!validIds.has(sessionId)) {
+      delete state.workflowPhases[sessionId];
+    }
+  });
+  state.sessions.forEach((session) => {
+    ensureWorkflowEntry(session.id, { phase: WORKFLOW_PHASES.EXECUTION });
+  });
+  persistWorkflowPhases();
+  window.appState = state;
+}
+
+function isSessionReadyForExecution(sessionId) {
+  // Check if session is in instant mode - instant mode always ready
+  const session = state.sessions.find(s => s.id === sessionId);
+  if (session && session.mode === 'instant') {
+    return true; // Instant mode bypasses workflow checks
+  }
+
+  // For planning mode, check workflow phase
+  const entry = getWorkflowEntry(sessionId);
+  if (!entry) return true;
+  return entry.phase === WORKFLOW_PHASES.EXECUTION;
+}
+
+function emitWorkflowPhaseChange(sessionId) {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(
+    new CustomEvent('workflow-phase-change', {
+      detail: {
+        sessionId,
+        phase: getWorkflowEntry(sessionId)?.phase || WORKFLOW_PHASES.PLANNING
+      }
+    })
+  );
+}
+
+function saveWorkflowPlanningDraft(payload) {
+  if (!payload?.sessionId) return;
+  const entry = ensureWorkflowEntry(payload.sessionId, { phase: WORKFLOW_PHASES.PLANNING });
+  entry.phase = payload.phase || entry.phase || WORKFLOW_PHASES.PLANNING;
+  entry.answers = payload.answers || entry.answers || {};
+  entry.conversation = payload.conversation || entry.conversation || [];
+  entry.prompt = payload.prompt || entry.prompt || '';
+  entry.summary = payload.summary || entry.summary || null;
+  entry.isComplete = Boolean(payload.isComplete);
+  entry.updatedAt = new Date().toISOString();
+  persistWorkflowPhases();
+  if (payload.sessionId === state.activeSessionId) {
+    renderPhaseBanner();
+    renderPhaseBadge();
+  }
+  window.appState = state;
+}
+
+async function completePlanningPhase(payload) {
+  if (!payload?.sessionId) return { success: false };
+  const entry = ensureWorkflowEntry(payload.sessionId, { phase: WORKFLOW_PHASES.EXECUTION });
+  entry.phase = WORKFLOW_PHASES.EXECUTION;
+  entry.answers = payload.answers || entry.answers || {};
+  entry.conversation = payload.conversation || entry.conversation || [];
+  entry.prompt = payload.prompt || entry.prompt || '';
+  entry.summary = payload.summary || entry.summary || buildPlanSummaryFromEntry(entry);
+  entry.isComplete = true;
+  entry.completedAt = new Date().toISOString();
+  entry.updatedAt = entry.completedAt;
+  persistWorkflowPhases();
+  window.appState = state;
+  emitWorkflowPhaseChange(payload.sessionId);
+  if (payload.sessionId === state.activeSessionId) {
+    renderPhaseBanner();
+    renderPhaseBadge();
+  }
+  showNotification('Planning phase complete. Execution unlocked.', 'success', 2500);
+  return { success: true };
+}
+
+async function resetPlanningPhase(sessionId) {
+  if (!sessionId) return;
+  markSessionRequiresPlanning(sessionId);
+  if (sessionId === state.activeSessionId) {
+    renderPhaseBanner();
+    renderPhaseBadge();
+  }
+}
+
+function buildPlanSummaryFromEntry(entry = {}) {
+  return {
+    objective: entry.answers?.objective || '',
+    context: entry.answers?.context || '',
+    constraints: entry.answers?.constraints || '',
+    verification: entry.answers?.verification || ''
+  };
+}
+
+function buildPlanningMountConfig() {
+  const sessionId = state.activeSessionId || state.sessions[0]?.id || null;
+  const session = state.sessions.find((item) => item.id === sessionId);
+  const entry = sessionId
+    ? ensureWorkflowEntry(sessionId, {
+        phase: session ? WORKFLOW_PHASES.EXECUTION : WORKFLOW_PHASES.PLANNING
+      })
+    : {
+        phase: WORKFLOW_PHASES.PLANNING,
+        answers: {},
+        conversation: [],
+        prompt: ''
+      };
+  return {
+    sessionId,
+    sessionName: session?.name || 'Untitled session',
+    answers: entry.answers,
+    conversation: entry.conversation,
+    generatedPrompt: entry.prompt,
+    phase: entry.phase,
+    isComplete: entry.phase === WORKFLOW_PHASES.EXECUTION
+  };
 }
 
 // Cloud synchronization functions

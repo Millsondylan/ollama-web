@@ -12,7 +12,9 @@
     <meta http-equiv="Expires" content="0" />
     <link rel="manifest" href="/manifest.json" />
     <title>Ollama Web Console</title>
-    <link rel="stylesheet" href="/styles.css?bust=1763357008" />
+    <link rel="stylesheet" href="/styles.css?bust=1763390673" />
+    <link rel="stylesheet" href="/styles-planning.css?bust=1763390673" />
+    <link rel="stylesheet" href="/styles-instant.css?bust=1763390673" />
     <style>
       /* INLINE CRITICAL STYLES - CACHE PROOF */
       .composer-input-wrapper-ultra {
@@ -107,251 +109,599 @@
       <nav id="page-nav"></nav>
     </div>
 
-    <template id="chat-page">
-<!-- Ultra-Modern Chat Template: Claude.ai/ChatGPT Style -->
-<div class="app-ultra">
+    <!-- HOME PAGE TEMPLATE - Mode Selection Landing Page -->
+    <template id="home-page">
+      <div class="home-page-container">
+        <!-- Header with Logo and Settings -->
+        <div class="home-header">
+          <div class="home-logo">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
+            </svg>
+            <h1>Ollama Web</h1>
+          </div>
+          <button id="home-settings-btn" class="home-settings-btn" title="Settings">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>
+            </svg>
+          </button>
+        </div>
 
-  <!-- Modern Sidebar: All Controls & Navigation Inside -->
-  <aside class="sidebar-ultra" id="chat-sidebar">
+        <!-- Welcome Message -->
+        <div class="home-welcome">
+          <h2>Choose Your Interface</h2>
+          <p>Select the mode that best fits your workflow</p>
+        </div>
 
-    <!-- Top: Logo + New Chat -->
-    <div class="sidebar-header-ultra">
-      <div class="logo-ultra">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
-        </svg>
-        <span>Ollama</span>
+        <!-- Mode Selection Cards -->
+        <div class="mode-cards-container">
+          <!-- Instant Prompt Mode Card -->
+          <div class="mode-card" id="instant-mode-card" data-mode="instant">
+            <div class="mode-card-icon instant-icon">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="13,2 3,14 12,14 11,22 21,10 12,10 13,2"/>
+              </svg>
+            </div>
+            <h3>Instant Prompt</h3>
+            <p>Quick responses for immediate questions and tasks</p>
+            <ul class="mode-features">
+              <li>Fast, streamlined interface</li>
+              <li>Direct chat with AI models</li>
+              <li>Image upload support</li>
+              <li>Perfect for quick queries</li>
+            </ul>
+            <button class="mode-select-btn instant-btn" data-mode="instant">
+              <span>Start Instant Mode</span>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="5,12 19,12"/><polyline points="12,5 19,12 12,19"/>
+              </svg>
+            </button>
+          </div>
+
+          <!-- Planning Mode Card -->
+          <div class="mode-card" id="planning-mode-card" data-mode="planning">
+            <div class="mode-card-icon planning-icon">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/>
+              </svg>
+            </div>
+            <h3>Planning Interface</h3>
+            <p>Structured, AI-guided planning conversations</p>
+            <ul class="mode-features">
+              <li>4-step guided workflow</li>
+              <li>AI-driven question flow</li>
+              <li>Context gathering & refinement</li>
+              <li>Smart data selection</li>
+            </ul>
+            <button class="mode-select-btn planning-btn" data-mode="planning">
+              <span>Start Planning Mode</span>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="5,12 19,12"/><polyline points="12,5 19,12 12,19"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Quick Info Section -->
+        <div class="home-info-section">
+          <div class="info-card">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
+            </svg>
+            <div>
+              <h4>Powered by Ollama</h4>
+              <p>Local and cloud AI models</p>
+            </div>
+          </div>
+          <div class="info-card">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.29,7 12,12 20.71,7"/><line x1="12" y1="22" x2="12" y2="12"/>
+            </svg>
+            <div>
+              <h4>Switch Anytime</h4>
+              <p>Change modes during your session</p>
+            </div>
+          </div>
+          <div class="info-card">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            <div>
+              <h4>Privacy First</h4>
+              <p>Your data stays local</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="home-footer">
+          <p>Version 2.0 • Dual-Interface AI Assistant</p>
+        </div>
       </div>
-      <button id="new-chat-btn" class="btn-new-chat-ultra">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <path d="M12 5v14M5 12h14"/>
+    </template>
+
+    <!-- PLANNING PAGE TEMPLATE - Split-Pane Layout -->
+    <template id="planning-page">
+      <div class="planning-page-container">
+        <!-- Header with Mode Badge -->
+        <div class="planning-header">
+          <div class="planning-header-left">
+            <div class="mode-badge planning-badge">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/>
+              </svg>
+              <span>Planning Mode</span>
+            </div>
+            <h2 id="planning-session-name">Planning Session</h2>
+          </div>
+          <div class="planning-header-right">
+            <button id="planning-switch-instant-btn" class="header-action-btn">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="13,2 3,14 12,14 11,22 21,10 12,10 13,2"/>
+              </svg>
+              <span>Switch to Instant</span>
+            </button>
+            <button id="planning-settings-btn" class="header-action-btn">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Split-pane Container -->
+        <div class="planning-split-container">
+          <!-- Left Pane: Q&A Interface -->
+          <div class="planning-left-pane">
+            <!-- Conversation Area -->
+            <div class="planning-conversation" id="planning-conversation">
+              <!-- AI conversation appears here -->
+              <div class="planning-welcome">
+                <h3>AI-Driven Planning</h3>
+                <p>I'll ask you questions to fully understand your needs. Your chosen Ollama model will guide the conversation, gathering context, exploring requirements, and helping you think through your task thoroughly.</p>
+                <p class="planning-welcome-hint">Click "Start Planning" to begin the conversation.</p>
+                <button id="planning-start-btn" class="planning-start-btn">Start Planning</button>
+              </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="planning-input-area" style="display: none;">
+              <div class="planning-attachments" id="planning-attachments" style="display: none;">
+                <!-- Image previews appear here -->
+              </div>
+              <div class="planning-composer">
+                <textarea
+                  id="planning-input"
+                  class="planning-textarea"
+                  placeholder="Type your response..."
+                  rows="3"
+                ></textarea>
+                <div class="planning-composer-actions">
+                  <button id="planning-image-btn" class="composer-icon-btn" title="Add images">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
+                    </svg>
+                  </button>
+                  <input type="file" id="planning-image-input" accept="image/*" multiple style="display: none;" />
+                  <button id="planning-done-btn" class="planning-done-btn" title="I'm satisfied with the planning">
+                    Done Planning
+                  </button>
+                  <button id="planning-submit-btn" class="planning-submit-btn">
+                    <span>Send</span>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polyline points="5,12 19,12"/><polyline points="12,5 19,12 12,19"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right Pane: Summary & Preview -->
+          <div class="planning-right-pane">
+            <!-- Summary Cards -->
+            <div class="planning-summary-section">
+              <h3 class="pane-section-title">Planning Summary</h3>
+
+              <div class="summary-card" id="summary-objective">
+                <div class="summary-card-header">
+                  <span class="summary-card-icon">🎯</span>
+                  <span class="summary-card-title">Objective</span>
+                </div>
+                <div class="summary-card-content">Not yet defined</div>
+              </div>
+
+              <div class="summary-card" id="summary-context">
+                <div class="summary-card-header">
+                  <span class="summary-card-icon">📝</span>
+                  <span class="summary-card-title">Context</span>
+                </div>
+                <div class="summary-card-content">Not yet defined</div>
+              </div>
+
+              <div class="summary-card" id="summary-constraints">
+                <div class="summary-card-header">
+                  <span class="summary-card-icon">⚠️</span>
+                  <span class="summary-card-title">Constraints</span>
+                </div>
+                <div class="summary-card-content">None specified</div>
+              </div>
+
+              <div class="summary-card" id="summary-verification">
+                <div class="summary-card-header">
+                  <span class="summary-card-icon">✓</span>
+                  <span class="summary-card-title">Verification</span>
+                </div>
+                <div class="summary-card-content">None specified</div>
+              </div>
+
+              <div class="summary-card" id="summary-images" style="display: none;">
+                <div class="summary-card-header">
+                  <span class="summary-card-icon">🖼️</span>
+                  <span class="summary-card-title">Images</span>
+                </div>
+                <div class="summary-card-content" id="summary-images-list">No images</div>
+              </div>
+            </div>
+
+            <!-- Prompt Preview -->
+            <div class="planning-preview-section">
+              <h3 class="pane-section-title">Generated Prompt Preview</h3>
+              <div class="prompt-preview" id="prompt-preview">
+                <div class="prompt-preview-placeholder">
+                  Complete the planning steps to see your generated prompt here.
+                </div>
+              </div>
+              <div class="prompt-preview-stats" id="prompt-stats">
+                <span>0 characters</span>
+                <span>•</span>
+                <span>~0 tokens</span>
+              </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="planning-actions-section">
+              <button id="planning-save-draft-btn" class="planning-action-btn secondary" disabled>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>
+                </svg>
+                <span>Save Draft</span>
+              </button>
+              <button id="planning-transfer-btn" class="planning-action-btn primary" disabled>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="13,2 3,14 12,14 11,22 21,10 12,10 13,2"/>
+                </svg>
+                <span>Transfer to Instant</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <template id="chat-page">
+<!-- Instant Mode: Planning-Inspired Clean Design -->
+<div class="instant-page-container">
+  <!-- Clean Header Matching Planning Mode -->
+  <div class="instant-header">
+    <div class="instant-header-left">
+      <div class="mode-badge instant-badge">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="13,2 3,14 12,14 11,22 21,10 12,10 13,2"/>
+        </svg>
+        <span>Instant Mode</span>
+      </div>
+      <h2 id="instant-session-name">Chat Session</h2>
+    </div>
+    <div class="instant-header-right">
+      <button id="instant-sessions-btn" class="header-action-btn" title="Sessions">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+        </svg>
+        <span>Sessions</span>
+      </button>
+      <button id="instant-switch-planning-btn" class="header-action-btn">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/>
+        </svg>
+        <span>Switch to Planning</span>
+      </button>
+      <button id="instant-settings-btn" class="header-action-btn">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>
         </svg>
       </button>
     </div>
+  </div>
 
-    <section class="sidebar-section-ultra">
-      <p class="sidebar-section-label">Sessions</p>
-      <div class="sessions-ultra">
-        <div id="sessions-today" class="session-group-ultra">
-          <div class="session-group-title-ultra">Today</div>
-          <div class="session-list-ultra"></div>
-        </div>
-        <div id="sessions-yesterday" class="session-group-ultra">
-          <div class="session-group-title-ultra">Yesterday</div>
-          <div class="session-list-ultra"></div>
-        </div>
-        <div id="sessions-week" class="session-group-ultra">
-          <div class="session-group-title-ultra">Previous 7 Days</div>
-          <div class="session-list-ultra"></div>
-        </div>
-        <div id="sessions-older" class="session-group-ultra">
-          <div class="session-group-title-ultra">Previous 30 Days</div>
-          <div class="session-list-ultra"></div>
-        </div>
-      </div>
-    </section>
-
-    <!-- QUICK ACCESS PANEL -->
-    <section class="sidebar-section-ultra sidebar-section-primary">
-      <div class="sidebar-button-stack">
-        <button id="nav-models-ultra" class="sidebar-btn-ultra sidebar-btn-highlight">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
-          </svg>
-          <span>Models</span>
-        </button>
-
-        <button id="nav-prompts-ultra" class="sidebar-btn-ultra sidebar-btn-highlight">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/>
-          </svg>
-          <span>Prompts</span>
-        </button>
-
-        <button id="nav-history-ultra" class="sidebar-btn-ultra sidebar-btn-highlight">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/>
-          </svg>
-          <span>History</span>
-        </button>
-      </div>
-    </section>
-
-    <!-- QUICK SETTINGS -->
-    <section class="sidebar-section-ultra sidebar-section-compact">
-      <div class="sidebar-button-stack">
-        <button id="nav-options-ultra" class="sidebar-btn-ultra sidebar-btn-secondary">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v10"/>
-          </svg>
-          <span>Quick Options</span>
-        </button>
-
-        <button id="nav-settings-ultra" class="sidebar-btn-ultra sidebar-btn-secondary">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>
-          </svg>
-          <span>Full Settings</span>
-        </button>
-
-        <button id="theme-toggle" class="sidebar-btn-ultra sidebar-btn-secondary">
-          <svg class="theme-icon-light" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
-          </svg>
-          <svg class="theme-icon-dark" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: none;">
-            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-          </svg>
-          <span class="theme-label-light">Dark Mode</span>
-          <span class="theme-label-dark" style="display: none;">Light Mode</span>
-        </button>
-      </div>
-    </section>
-
-    <!-- Hidden elements for compatibility -->
-    <div style="display: none;">
-      <div id="chat-sessions-list"></div>
-      <input type="text" id="chat-search" />
-      <button id="search-clear"></button>
-      <button id="sidebar-toggle"></button>
-      <span id="session-count"></span>
-    </div>
-  </aside>
-
-  <!-- Main Chat Area -->
-  <main class="chat-area-ultra">
-
-    <!-- Mobile Sidebar Toggle (Top-Left Corner Only) -->
-    <button
-      id="sidebar-toggle-mobile"
-      class="mobile-toggle-ultra"
-      aria-label="Toggle sidebar menu"
-      aria-controls="chat-sidebar"
-      aria-expanded="false"
-    >
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M3 12h18M3 6h18M3 18h18"/>
+  <!-- Model Selection Bar -->
+  <div class="instant-model-bar">
+    <label class="instant-model-selector">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
+      </svg>
+      <span>Model</span>
+      <select id="chat-page-model-selector" class="instant-select"></select>
+    </label>
+    <button id="theme-toggle" class="instant-theme-btn">
+      <svg class="theme-icon-light" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+      </svg>
+      <svg class="theme-icon-dark" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: none;">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
       </svg>
     </button>
+  </div>
 
-    <div class="chat-content-container">
-      <header class="chat-session-header" aria-live="polite">
-        <div class="session-header-text">
-          <p class="session-eyebrow">Active session</p>
-          <h1 id="chat-meta-session" class="session-title">--</h1>
-          <p id="chat-meta-subtitle" class="session-subtitle"></p>
-        </div>
-        <div class="session-header-pills">
-          <span class="meta-pill" id="meta-model-pill">Model: --</span>
-          <span class="meta-pill" id="meta-preset-pill">Preset: Custom</span>
-          <span class="meta-pill" id="meta-thinking-pill">Thinking: MAX</span>
-        </div>
-      </header>
-
-      <div class="chat-control-row">
-        <label class="chat-control-field">
-          <span>Model</span>
-          <select id="chat-page-model-selector"></select>
-        </label>
-        <label class="chat-control-field">
-          <span>Preset</span>
-          <select id="chat-page-preset-selector"></select>
-        </label>
+  <!-- Conversation Area (Planning Mode Style) -->
+  <div class="instant-conversation" id="instant-conversation">
+    <!-- Welcome Message -->
+    <div id="instant-welcome" class="instant-welcome">
+      <div class="instant-welcome-icon">
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="13,2 3,14 12,14 11,22 21,10 12,10 13,2"/>
+        </svg>
       </div>
-      <p id="chat-preset-description" class="chat-control-subtext">Preset details will appear here.</p>
+      <h3>Ready for instant responses</h3>
+      <p>Ask anything, upload images, or start a conversation</p>
+    </div>
 
-      <section id="chat-empty-hero" class="chat-empty-hero" aria-live="polite" aria-hidden="true" hidden>
-        <div class="chat-empty-copy">
-          <p class="hero-eyebrow">Welcome back</p>
-          <h2>What should we tackle today?</h2>
-          <p class="hero-paragraph">
-            Share a goal, paste requirements, or drop a repo summary. I'll walk through discovery,
-            implementation, and verification while keeping thinking visible.
-          </p>
-          <ul class="hero-highlights">
-            <li>Live thinking feed before every answer</li>
-            <li>Session-specific instructions &amp; attachments</li>
-            <li>Quick prompts to jumpstart the conversation</li>
-          </ul>
-        </div>
-        <div class="chat-empty-actions">
-          <div class="hero-session-chip" id="hero-session-pill">Session: --</div>
-          <div class="quick-actions-grid" id="chat-quick-actions"></div>
-        </div>
-      </section>
+    <!-- Chat History Container -->
+    <div id="chat-history" class="instant-messages"></div>
 
-      <!-- Chat Messages -->
-      <div id="chat-history" class="chat-history-ultra"></div>
+    <!-- Typing Indicator -->
+    <div id="typing-indicator" class="instant-typing" style="display: none;">
+      <div class="typing-dots">
+        <span></span><span></span><span></span>
+      </div>
+      <span class="typing-text">Assistant is thinking...</span>
+    </div>
+  </div>
 
-      <!-- Typing Indicator -->
-      <div
-        id="typing-indicator"
-        class="typing-indicator-ultra"
-        role="status"
-        aria-live="polite"
-        aria-hidden="true"
-        aria-busy="false"
-        style="display: none;"
-      >
-        <div class="typing-content-ultra">
-          <div class="typing-dots-ultra" aria-hidden="true">
-            <span></span><span></span><span></span>
-          </div>
-          <span class="typing-text-ultra">Assistant is thinking...</span>
+  <!-- Input Area (Planning Mode Style) -->
+  <div class="instant-input-area">
+    <div id="instant-attachments" class="instant-attachments">
+      <!-- Image previews appear here -->
+    </div>
+    <div class="instant-composer">
+      <textarea
+        id="chat-input"
+        class="instant-textarea"
+        placeholder="Type your message..."
+        rows="3"
+      ></textarea>
+      <div class="instant-composer-actions">
+        <button id="image-upload-btn" class="composer-icon-btn" title="Add images">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
+          </svg>
+        </button>
+        <input type="file" id="image-upload-input" accept="image/*" multiple style="display: none;" />
+        <button id="send-btn" class="instant-submit-btn" disabled>
+          <span>Send</span>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sessions Modal -->
+  <div id="sessions-modal" class="instant-modal" style="display: none;">
+    <div class="instant-modal-content">
+      <div class="instant-modal-header">
+        <h3>Your Sessions</h3>
+        <button id="sessions-modal-close" class="instant-modal-close">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="instant-modal-body">
+        <button id="new-chat-btn" class="instant-new-session-btn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+          <span>New Session</span>
+        </button>
+        <div id="chat-sessions-list" class="instant-sessions-list">
+          <!-- Sessions will be populated here -->
         </div>
       </div>
     </div>
+  </div>
 
-    <!-- Modern Floating Composer -->
-    <div class="composer-ultra">
-      <div class="composer-container-ultra">
-        <!-- Image Preview Area -->
-        <div id="image-preview-container" class="image-preview-container" style="display: none;">
-          <div id="image-preview-list" class="image-preview-list"></div>
+  <!-- Settings Modal -->
+  <div id="settings-modal-ultra" class="instant-modal" style="display: none;">
+    <div class="instant-modal-content instant-modal-large">
+      <div class="instant-modal-header">
+        <h3>Settings</h3>
+        <button id="close-settings-ultra" class="instant-modal-close">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="instant-modal-body">
+        <!-- SECTION: Model & Behavior -->
+        <div class="settings-section-ultra">
+          <h3 class="section-title-ultra">Model & Behavior</h3>
+
+          <div class="setting-group-ultra">
+            <label class="setting-label-ultra">Active Model</label>
+            <div id="model-selector-container">
+              <select id="model-selector" class="setting-select-ultra">
+                <option>Loading models...</option>
+              </select>
+              <div id="active-model-display" class="status-display-ultra">
+                <small style="color: var(--text-secondary);">Current: <span id="active-model">--</span></small>
+              </div>
+            </div>
+          </div>
+
+          <div id="suggested-models-container" style="margin-top: 1.5rem; padding: 1rem; background: var(--bg-secondary); border-radius: 0.5rem; display: none;">
+            <h4 style="margin: 0 0 0.75rem 0; font-size: 0.9rem; color: var(--text-secondary);">💡 Suggested Models for Your Preset</h4>
+            <div id="suggested-models-list" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
+          </div>
+
         </div>
 
-        <div class="composer-input-wrapper-ultra">
-          <textarea
-            id="chat-input"
-            class="input-ultra"
-            placeholder="Message Ollama..."
-            aria-label="Chat message"
-            rows="1"
-          ></textarea>
+        <!-- SECTION: Prompts & Enhancement -->
+        <div class="settings-section-ultra">
+          <h3 class="section-title-ultra">Prompt Processing</h3>
 
-          <div class="composer-actions">
-            <!-- Hidden file input -->
-            <input
-              type="file"
-              id="image-upload-input"
-              accept="image/*"
-              multiple
-              style="display: none;"
-              aria-label="Upload images"
-            />
-
-            <!-- Image upload button -->
-            <button id="image-upload-btn" class="composer-action-btn" aria-label="Attach images" title="Upload images">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                <circle cx="8.5" cy="8.5" r="1.5"/>
-                <polyline points="21 15 16 10 5 21"/>
-              </svg>
-            </button>
-
-            <button id="send-btn" class="send-btn-ultra" aria-label="Send message" disabled>
-              <svg class="send-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
-              </svg>
-              <div class="loading-spinner" style="display: none;">
-                <div class="spinner-ring"></div>
+          <div class="setting-group-ultra">
+            <label class="setting-toggle-ultra">
+              <div>
+                <div class="setting-label-ultra">Enforce XML golden schema</div>
+                <div class="setting-description-ultra">Require responses to follow the &lt;response&gt; template (role → discovery → web research → execution → verification)</div>
               </div>
-            </button>
+              <input type="checkbox" id="structured-prompt-toggle" class="toggle-checkbox-ultra" />
+              <div class="toggle-switch-ultra"></div>
+            </label>
+          </div>
+
+          <div class="setting-group-ultra">
+            <label class="setting-toggle-ultra">
+              <div>
+                <div class="setting-label-ultra">AI Coder Mode</div>
+                <div class="setting-description-ultra">Auto-enhance prompts with discovery→plan→implement→verify workflow</div>
+              </div>
+              <input type="checkbox" id="ai-coder-toggle" class="toggle-checkbox-ultra" checked />
+              <div class="toggle-switch-ultra"></div>
+            </label>
           </div>
         </div>
 
-        <div class="composer-footer-ultra">
-          <span id="char-counter" class="char-count-ultra">0 characters</span>
-          <span id="image-counter" class="image-count-ultra" style="display: none;">0 images</span>
+        <!-- SECTION: Instructions -->
+        <div class="settings-section-ultra">
+          <h3 class="section-title-ultra">Instructions & Context</h3>
+
+          <div class="setting-group-ultra">
+            <label class="setting-label-ultra">Session Instructions</label>
+            <select id="chat-instruction-preset-select" class="setting-select-ultra">
+              <option value="">Loading presets...</option>
+            </select>
+            <div id="chat-instruction-preset-description" class="setting-description-ultra" style="margin-top: 0.5rem; padding: 0.75rem; background: var(--bg-primary); border-radius: 0.5rem; border-left: 3px solid var(--accent); font-size: 0.875rem;"></div>
+          </div>
+        </div>
+
+        <!-- SECTION: Connection -->
+        <div class="settings-section-ultra">
+          <h3 class="section-title-ultra">Status</h3>
+
+          <div class="setting-group-ultra">
+            <div class="setting-label-ultra">Connection</div>
+            <div id="connection-status-display" class="status-display-ultra">
+              <span id="connection-status" class="status-badge-ultra">Checking...</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECTION: GitHub Integration -->
+        <div class="settings-section-ultra">
+          <h3 class="section-title-ultra">GitHub Integration</h3>
+
+          <div class="setting-group-ultra">
+            <label class="setting-label-ultra">GitHub Personal Access Token</label>
+            <input type="password" id="github-token-input" class="setting-input-ultra" placeholder="ghp_xxxxxxxxxxxx" />
+            <div class="setting-description-ultra">
+              Create a token at github.com/settings/tokens with 'repo' scope. Saved securely in local storage.
+            </div>
+          </div>
+
+          <div class="setting-group-ultra">
+            <label class="setting-label-ultra">Add Repository</label>
+            <input type="text" id="github-repo-input" class="setting-input-ultra" placeholder="username/repo-name" />
+            <button id="github-connect-btn" class="btn-primary-ultra" type="button">Add Repository</button>
+          </div>
+
+          <div id="github-status" class="status-display-ultra" style="display: none;">
+            <span id="github-status-text"></span>
+          </div>
+
+          <div id="github-repos-container" style="margin-top: 1rem;">
+            <div class="setting-label-ultra" style="margin-bottom: 0.5rem;">Connected Repositories:</div>
+            <div id="github-repos-list" class="github-repos-list" style="display: none;"></div>
+            <div id="github-repos-empty" class="setting-description-ultra">No repositories connected yet.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hidden compatibility elements -->
+  <div style="display: none;">
+    <div id="chat-sessions-list"></div>
+    <input type="text" id="chat-search" />
+    <button id="search-clear"></button>
+    <button id="sidebar-toggle"></button>
+    <button id="sidebar-toggle-mobile"></button>
+    <span id="session-count"></span>
+    <select id="chat-page-preset-selector"></select>
+    <p id="chat-preset-description"></p>
+    <span id="meta-preset-pill"></span>
+    <div id="meta-mode-pill"></div>
+    <button id="chat-mode-switch-btn"></button>
+    <div id="meta-model-pill"></div>
+    <div id="meta-thinking-pill"></div>
+    <h1 id="chat-meta-session"></h1>
+    <p id="chat-meta-subtitle"></p>
+    <div id="phase-gate-banner"></div>
+    <button id="phase-gate-open-planning"></button>
+    <div id="chat-empty-hero"></div>
+    <button id="planning-mode-toggle"></button>
+    <div id="image-preview-container"></div>
+    <div id="image-preview-list"></div>
+    <button id="screenshot-capture-btn"></button>
+    <span id="char-counter"></span>
+    <span id="image-counter"></span>
+    <span id="vision-bridge-status"></span>
+    <aside id="side-panel-container"></aside>
+    <div id="nav-models-ultra"></div>
+    <div id="nav-prompts-ultra"></div>
+    <div id="nav-history-ultra"></div>
+    <div id="nav-options-ultra"></div>
+    <div id="nav-settings-ultra"></div>
+  </div>
+
+</div>
+
+    <div id="model-prep-modal" class="modal-ultra model-prep-modal" style="display: none;">
+      <div class="modal-content-ultra model-prep-content">
+        <div class="modal-header-ultra">
+          <div>
+            <h2>Choose a model for screenshots</h2>
+            <p id="model-prep-reason" class="muted small-text">
+              Select or install a model to unlock image uploads.
+            </p>
+          </div>
+          <button id="model-prep-close" class="modal-close-btn" aria-label="Close dialog">×</button>
+        </div>
+        <div class="model-prep-body">
+          <section class="model-prep-section">
+            <div class="section-heading-row">
+              <h3>Installed models</h3>
+            </div>
+            <div id="model-prep-installed-list" class="model-card-grid"></div>
+          </section>
+
+          <section class="model-prep-section">
+            <div class="section-heading-row">
+              <h3>Suggested local models</h3>
+            </div>
+            <div id="model-prep-suggested-list"></div>
+          </section>
+
+          <section class="model-prep-section">
+            <div class="section-heading-row">
+              <h3>Web / Cloud options</h3>
+            </div>
+            <div id="model-prep-web-list" class="model-card-grid"></div>
+          </section>
+
+          <button id="model-prep-dismiss" class="ghost-btn model-prep-dismiss-btn">Maybe later</button>
         </div>
       </div>
     </div>
@@ -503,12 +853,19 @@
 
           <div class="setting-group-ultra">
             <label class="setting-label-ultra">Active Model</label>
-            <select id="model-selector" class="setting-select-ultra">
-              <option>Loading models...</option>
-            </select>
-            <div id="active-model-display" class="status-display-ultra">
-              <small style="color: var(--text-secondary);">Current: <span id="active-model">--</span></small>
+            <div id="model-selector-container">
+              <select id="model-selector" class="setting-select-ultra">
+                <option>Loading models...</option>
+              </select>
+              <div id="active-model-display" class="status-display-ultra">
+                <small style="color: var(--text-secondary);">Current: <span id="active-model">--</span></small>
+              </div>
             </div>
+          </div>
+
+          <div id="suggested-models-container" style="margin-top: 1.5rem; padding: 1rem; background: var(--bg-secondary); border-radius: 0.5rem; display: none;">
+            <h4 style="margin: 0 0 0.75rem 0; font-size: 0.9rem; color: var(--text-secondary);">💡 Suggested Models for Your Preset</h4>
+            <div id="suggested-models-list" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
           </div>
 
         </div>
@@ -601,262 +958,104 @@
     </template>
 
     <template id="settings-page">
-      <div class="app-page-shell">
-      <div class="page-with-nav">
-        <button class="back-to-chat-btn" onclick="window.navigateToPage('chat')">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M19 12H5M12 19l-7-7 7-7"/>
-          </svg>
-          Back to Chat
-        </button>
-      </div>
-      <section class="panel">
-        <h2>Settings & Custom Instructions</h2>
-        <form id="settings-form" class="settings-form">
-          <label>
-            Model name
-            <input type="text" name="model" required />
-          </label>
-          <label>
-            Mode
-            <select name="ollamaMode" id="ollama-mode-select">
-              <option value="local">Local (Offline - No API key)</option>
-              <option value="cloud">Cloud (Datacenter GPUs - Requires API key)</option>
-            </select>
-          </label>
-          <div class="settings-help-text" style="margin: -8px 0 16px 0; padding: 8px 12px; background: var(--bg-secondary, #f5f5f5); border-radius: 4px; font-size: 0.9em;">
-            <div id="mode-help-local" style="display: none;">
-              <strong>Local Mode:</strong> Uses models on your device. Works offline, no API key needed.
-            </div>
-            <div id="mode-help-cloud" style="display: none;">
-              <strong>Cloud Mode:</strong> Access 1 Trillion parameter models on Ollama's datacenter GPUs. Requires API key from <a href="https://ollama.com/settings/keys" target="_blank">ollama.com/settings/keys</a>
-            </div>
-          </div>
-          <label id="cloud-api-key-label" style="display: none;">
-            Ollama API Key (for cloud mode)
-            <input type="password" name="ollamaApiKey" id="ollama-api-key-input" placeholder="Your API key from ollama.com" />
-            <small style="display: block; margin-top: 4px; color: #666;">Get your key at <a href="https://ollama.com/settings/keys" target="_blank">ollama.com/settings/keys</a></small>
-          </label>
-          <label>
-            Ollama endpoint (OLLAMA_HOST)
-            <input type="url" name="apiEndpoint" id="ollama-endpoint-input" placeholder="http://127.0.0.1:11434" />
-            <small id="endpoint-help" style="display: block; margin-top: 4px; color: #666;"></small>
-          </label>
-          <label>
-            Backend base URL (for this UI)
-            <input type="url" name="backendBaseUrl" placeholder="http://localhost:3000/" />
-          </label>
-          <label>
-            Theme
-            <select name="theme">
-              <option value="system">System</option>
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
-            </select>
-          </label>
-          <label>
-            Messages to include per prompt
-            <input type="number" min="1" name="maxHistory" />
-          </label>
-          <div class="instruction-preset-control">
-            <label>
-              Instruction preset
-              <select id="instruction-preset-select">
-                <option value="">Custom / manual</option>
-              </select>
-            </label>
-            <button type="button" id="instruction-preset-apply" class="ghost-btn">Apply preset</button>
-          </div>
-          <p id="instruction-preset-description" class="muted small-text"></p>
-          <label>
-            System instructions
-            <textarea name="systemInstructions" rows="4"></textarea>
-          </label>
-          <button type="submit">Save settings</button>
-        </form>
-      </section>
-
-      <section class="panel">
-        <h3>Custom Pages</h3>
-        <p>Register extra pages by providing a label and a relative or absolute URL.</p>
-        <form id="custom-page-form" class="custom-page-form">
-          <label>
-            Page label
-            <input type="text" name="label" placeholder="Docs" required />
-          </label>
-          <label>
-            Page URL
-            <input type="text" name="url" placeholder="/pages/docs.html" required />
-          </label>
-          <button type="submit">Add page</button>
-        </form>
-        <ul id="custom-page-list" class="custom-page-list"></ul>
-      </section>
-
-      <section class="panel">
-        <h3>Custom API Endpoint</h3>
-        <p>Forward ad-hoc JSON payloads through the backend proxy.</p>
-        <form id="proxy-form" class="settings-form">
-          <label>
-            Target URL
-            <input type="text" name="url" placeholder="http://localhost:11434/api/tags" required />
-          </label>
-          <label>
-            Method
-            <select name="method">
-              <option value="GET">GET</option>
-              <option value="POST">POST</option>
-            </select>
-          </label>
-          <label>
-            JSON payload (optional)
-            <textarea name="payload" rows="3" placeholder='{"hello":"world"}'></textarea>
-          </label>
-          <button type="submit">Send request</button>
-        </form>
-        <pre id="proxy-response" class="panel proxy-response"></pre>
-      </section>
-      </div>
-    </template>
-
-    <template id="history-page">
-      <div class="app-page-shell">
-      <div class="page-with-nav">
-        <button class="back-to-chat-btn" onclick="window.navigateToPage('chat')">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M19 12H5M12 19l-7-7 7-7"/>
-          </svg>
-          Back to Chat
-        </button>
-      </div>
-      <section class="panel">
-        <div class="panel-header panel-header-stacked">
-          <h2>Server History</h2>
-          <label class="session-select">
-            <span>Session</span>
-            <select id="history-session-select"></select>
-          </label>
-        </div>
-        <div id="server-history"></div>
-      </section>
-      <section class="panel">
-        <h2>Local History</h2>
-        <div id="local-history"></div>
-      </section>
-      </div>
-    </template>
-
-    <template id="sessions-page">
-      <div class="app-page-shell">
-      <div class="page-with-nav">
-        <button class="back-to-chat-btn" onclick="window.navigateToPage('chat')">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M19 12H5M12 19l-7-7 7-7"/>
-          </svg>
-          Back to Chat
-        </button>
-      </div>
-      <section class="panel">
-        <div class="panel-header panel-header-stacked">
-          <h2>Saved Sessions</h2>
-          <p class="muted small-text">Customize instructions, attach files, and switch contexts quickly.</p>
-        </div>
-        <div id="session-list" class="session-list"></div>
-      </section>
-      <section class="panel">
-        <h2 id="session-form-title">Create Session</h2>
-        <form id="session-form" class="settings-form">
-          <input type="hidden" name="sessionId" />
-          <label>
-            Session name
-            <input type="text" name="name" placeholder="My Workspace" required />
-          </label>
-          <div class="instruction-preset-control">
-            <label>
-              Instruction preset
-              <select id="session-instruction-preset-select">
-                <option value="">Custom / manual</option>
-              </select>
-            </label>
-            <button type="button" id="session-instruction-preset-apply" class="ghost-btn">Apply preset</button>
-          </div>
-          <p id="session-instruction-preset-description" class="muted small-text"></p>
-          <label>
-            Custom instructions
-            <textarea name="instructions" rows="4" placeholder="How should the assistant behave?"></textarea>
-          </label>
-          <label>
-            Additional context (text)
-            <textarea name="attachmentText" rows="4" placeholder="Paste notes or requirements..."></textarea>
-          </label>
-          <label>
-            Attach files (text-based)
-            <input type="file" id="session-files" name="files" multiple accept=".txt,.md,.mdx,.json,.csv,.log,.yaml,.yml,.xml,.html,.js,.ts,.py" />
-            <span class="muted small-text">Existing attachments remain unless you upload new files or text.</span>
-          </label>
-          <div class="form-actions">
-            <button type="submit" id="session-form-submit">Save session</button>
-            <button type="button" id="session-form-cancel" class="ghost-btn">Reset</button>
-          </div>
-        </form>
-      </section>
-      </div>
-    </template>
-
-    <template id="api-page">
-      <div class="app-page-shell">
-      <div class="page-with-nav">
-        <button class="back-to-chat-btn" onclick="window.navigateToPage('chat')">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M19 12H5M12 19l-7-7 7-7"/>
-          </svg>
-          Back to Chat
-        </button>
-      </div>
-      <section class="panel">
-        <div class="panel-header panel-header-stacked">
-          <h2>API Access</h2>
-          <p class="muted small-text">Call the backend from your own tools using a generated key.</p>
-        </div>
-        <div class="api-base-url">
+      <div class="settings-page-container">
+        <!-- Header -->
+        <div class="settings-header">
           <div>
-            <p class="muted small-text">Base URL</p>
-            <code id="api-base-url"></code>
+            <h2>Settings</h2>
+            <p class="settings-subtitle">Configure your Ollama connection and preferences</p>
           </div>
-          <button id="copy-base-url" class="ghost-btn">Copy</button>
+          <button class="settings-close-btn" onclick="window.navigateToPage('home')">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
         </div>
-        <pre id="api-sample" class="code-block"></pre>
-      </section>
 
-      <section class="panel">
-        <div class="panel-header panel-header-stacked">
-          <h3>API Keys</h3>
-          <p class="muted small-text">Keys authenticate requests sent with `Authorization: Bearer &lt;key&gt;`.</p>
-        </div>
-        <div class="callout" id="api-key-secret"></div>
-        <form id="api-key-form" class="inline-form">
-          <input type="text" name="name" placeholder="Key label (optional)" />
-          <button type="submit">Generate key</button>
+        <!-- Settings Form -->
+        <form id="settings-form" class="settings-form-modern">
+          <div id="settings-feedback" class="settings-feedback" role="alert" aria-live="polite"></div>
+
+          <!-- Connection Settings -->
+          <section class="settings-section">
+            <h3 class="settings-section-title">Connection</h3>
+            
+            <label class="settings-label">
+              <span class="label-text">Model Name</span>
+              <input type="text" name="model" class="settings-input" placeholder="qwen3:1.7b" required />
+              <span class="label-help">The Ollama model to use for chat</span>
+            </label>
+
+            <label class="settings-label">
+              <span class="label-text">Mode</span>
+              <select name="ollamaMode" id="ollama-mode-select" class="settings-select">
+                <option value="local">Local (Offline - No API key)</option>
+                <option value="cloud">Cloud (Datacenter GPUs - Requires API key)</option>
+              </select>
+            </label>
+
+            <div id="cloud-api-key-section" class="settings-conditional" style="display: none;">
+              <label class="settings-label">
+                <span class="label-text">Ollama Cloud API Key</span>
+                <input type="password" name="ollamaApiKey" id="ollama-api-key-input" class="settings-input" placeholder="Enter your API key" />
+                <span class="label-help">Get your key at <a href="https://ollama.com/settings/keys" target="_blank">ollama.com/settings/keys</a></span>
+              </label>
+            </div>
+
+            <label class="settings-label">
+              <span class="label-text">Ollama Endpoint</span>
+              <input type="url" name="apiEndpoint" id="ollama-endpoint-input" class="settings-input" placeholder="http://127.0.0.1:11434" />
+              <span class="label-help" id="endpoint-help">Local Ollama server address</span>
+            </label>
+          </section>
+
+          <!-- Interface Settings -->
+          <section class="settings-section">
+            <h3 class="settings-section-title">Interface</h3>
+            
+            <label class="settings-label">
+              <span class="label-text">Theme</span>
+              <select name="theme" class="settings-select">
+                <option value="system">System</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+              <span class="label-help">Choose your preferred color scheme</span>
+            </label>
+          </section>
+
+          <!-- Chat Settings -->
+          <section class="settings-section">
+            <h3 class="settings-section-title">Chat</h3>
+            
+            <label class="settings-label">
+              <span class="label-text">Context Messages</span>
+              <input type="number" min="1" max="100" name="maxHistory" class="settings-input" />
+              <span class="label-help">Number of previous messages to include in each request</span>
+            </label>
+
+            <label class="settings-label">
+              <span class="label-text">System Instructions (Optional)</span>
+              <textarea name="systemInstructions" rows="4" class="settings-textarea" placeholder="You are a helpful assistant..."></textarea>
+              <span class="label-help">Custom instructions sent with every message</span>
+            </label>
+          </section>
+
+          <!-- Save Button -->
+          <div class="settings-actions">
+            <button type="submit" class="settings-save-btn">Save Settings</button>
+          </div>
         </form>
-        <div id="api-key-empty" class="muted small-text">No keys yet.</div>
-        <div class="table-wrapper">
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Created</th>
-                <th>Last used</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="api-key-list"></tbody>
-          </table>
-        </div>
-      </section>
       </div>
     </template>
 
-    <script src="/app.js?bust=1763357008" type="module"></script>
+
+
+
+
+    <script src="/app-planning.js?bust=1763390673"></script>
+    <script src="/app-instant.js?bust=1763390673"></script>
+    <script src="/app.js?bust=1763390673" type="module"></script>
     <script>
       // DISABLE SERVICE WORKER COMPLETELY
       console.log('[CACHE] Service worker DISABLED - using fresh files');
@@ -901,7 +1100,9 @@
             });
         });
       }
+      */
     </script>
+
   </body>
 </html>
 
